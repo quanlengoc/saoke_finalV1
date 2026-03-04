@@ -1,0 +1,86 @@
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [init] Starting report generation for batch SACOMBANK_TOPUP_20260210_180221
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [create_temp_table] Creating temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [create_temp_table] A1 DataFrame has 12436 rows, columns: ['transaction_id', 'transaction_date', 'value_date', 'transaction_remarks', 'debit_amount', 'credit_amount', 'partner_transaction_id', 'bill_amount', 'partner_transaction_id_refund', 'amount_refund', 'status_b1b4', 'status_b1b2', 'final_status']
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [create_temp_table] Temp table created successfully
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [load_template] Loaded template: shared/report_topup.xlsx
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [load_template] Workbook sheets: ['Sheet1']
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Tổng hợp' not found in workbook
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Chi tiết' not found in workbook
+2026-02-10 19:11:52 | INFO     | report | report_generator.py:76 | [cleanup] Dropped temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:16:50 | INFO     | report | report_generator.py:76 | [init] Starting report generation for batch SACOMBANK_TOPUP_20260210_180221
+2026-02-10 19:16:50 | INFO     | report | report_generator.py:76 | [create_temp_table] Creating temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:16:50 | INFO     | report | report_generator.py:76 | [create_temp_table] A1 DataFrame has 12436 rows, columns: ['transaction_id', 'transaction_date', 'value_date', 'transaction_remarks', 'debit_amount', 'credit_amount', 'partner_transaction_id', 'bill_amount', 'partner_transaction_id_refund', 'amount_refund', 'status_b1b4', 'status_b1b2', 'final_status']
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [create_temp_table] Temp table created successfully
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [load_template] Loaded template: shared/report_topup.xlsx
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [load_template] Workbook sheets: ['Sheet1']
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Tổng hợp' not found, creating new sheet
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Tổng hợp
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [static_cell] Cell B2 = 'SACOMBANK'
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [static_cell] Cell B3 = '2026-02-10 - 2026-02-10'
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [static_cell] Cell B4 = '2026-02-10 19:16:51'
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [static_cell] Cell B5 = 'admin@vnpt.vn'
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [sql_cell] Cell C10 = 12436
+2026-02-10 19:16:51 | ERROR    | report | report_generator.py:74 | [sql_cell] Cell D12 - (sqlite3.OperationalError) no such column: amount_b1
+[SQL: SELECT COALESCE(SUM(amount_b1),0) FROM temp_a1_SACOMBANK_TOPUP_20260210_18022 WHERE final_status='NOT_IN_SYSTEM']
+(Background on this error at: https://sqlalche.me/e/20/e3q8) | SQL: SELECT COALESCE(SUM(amount_b1),0) FROM temp_a1_SACOMBANK_TOPUP_20260210_18022 WHERE final_status='NOT_IN_SYSTEM'
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-10 19:16:51 | ERROR    | report | report_generator.py:74 | [data_table] Data table query failed: (sqlite3.OperationalError) no such column: amount_b1
+[SQL: SELECT sum(amount_b1), count(*) FROM temp_a1_SACOMBANK_TOPUP_20260210_18022]
+(Background on this error at: https://sqlalche.me/e/20/e3q8) | SQL: SELECT sum(amount_b1), count(*) FROM temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Tổng hợp
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Chi tiết' not found, creating new sheet
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Chi tiết
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-10 19:16:51 | ERROR    | report | report_generator.py:74 | [data_table] Data table query failed: (sqlite3.OperationalError) no such column: txn_id
+[SQL: SELECT txn_id, txn_date, amount_b1, status_b1b4, status_b1b2, final_status, note FROM temp_a1_SACOMBANK_TOPUP_20260210_18022 ORDER BY txn_date, txn_id]
+(Background on this error at: https://sqlalche.me/e/20/e3q8) | SQL: SELECT txn_id, txn_date, amount_b1, status_b1b4, status_b1b2, final_status, note FROM temp_a1_SACOMBANK_TOPUP_20260210_18022 ORDER BY txn_date, txn_id
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Chi tiết
+2026-02-10 19:16:51 | INFO     | report | report_generator.py:76 | [cleanup] Dropped temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [init] Starting report generation for batch SACOMBANK_TOPUP_20260210_180221
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [create_temp_table] Creating temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [create_temp_table] A1 DataFrame has 12436 rows, columns: ['transaction_id', 'transaction_date', 'value_date', 'transaction_remarks', 'debit_amount', 'credit_amount', 'partner_transaction_id', 'bill_amount', 'partner_transaction_id_refund', 'amount_refund', 'status_b1b4', 'status_b1b2', 'final_status']
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [create_temp_table] Temp table created successfully
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [load_template] Loaded template: shared/report_topup.xlsx
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [load_template] Workbook sheets: ['Sheet1']
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Tổng hợp' not found, creating new sheet
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Tổng hợp
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [static_cell] Cell B2 = 'SACOMBANK'
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [static_cell] Cell B3 = '2026-02-10 - 2026-02-10'
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [static_cell] Cell B4 = '2026-02-10 19:20:22'
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [static_cell] Cell B5 = 'admin@vnpt.vn'
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [sql_cell] Cell A1 = 12436
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [sql_cell] Cell A2 = 6140.0
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [data_table] Got 1 rows for data table
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Tổng hợp
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Chi tiết' not found, creating new sheet
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Chi tiết
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-10 19:20:22 | ERROR    | report | report_generator.py:74 | [data_table] Data table query failed: (sqlite3.OperationalError) no such table: temp
+[SQL: SELECT * FROM temp a1 LIMIT 9]
+(Background on this error at: https://sqlalche.me/e/20/e3q8) | SQL: SELECT * FROM temp a1 LIMIT 9
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Chi tiết
+2026-02-10 19:20:22 | INFO     | report | report_generator.py:76 | [cleanup] Dropped temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [init] Starting report generation for batch SACOMBANK_TOPUP_20260210_180221
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [create_temp_table] Creating temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [create_temp_table] A1 DataFrame has 12436 rows, columns: ['transaction_id', 'transaction_date', 'value_date', 'transaction_remarks', 'debit_amount', 'credit_amount', 'partner_transaction_id', 'bill_amount', 'partner_transaction_id_refund', 'amount_refund', 'status_b1b4', 'status_b1b2', 'final_status']
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [create_temp_table] Temp table created successfully
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [load_template] Loaded template: shared/report_topup.xlsx
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [load_template] Workbook sheets: ['Sheet1']
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Tổng hợp' not found, creating new sheet
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Tổng hợp
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [static_cell] Cell B2 = 'SACOMBANK'
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [static_cell] Cell B3 = '2026-02-10 - 2026-02-10'
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [static_cell] Cell B4 = '2026-02-10 19:21:12'
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [static_cell] Cell B5 = 'admin@vnpt.vn'
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [sql_cell] Cell A1 = 12436
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [sql_cell] Cell A2 = 6140.0
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [data_table] Got 1 rows for data table
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Tổng hợp
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Chi tiết' not found, creating new sheet
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Chi tiết
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [data_table] Got 9 rows for data table
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Chi tiết
+2026-02-10 19:21:12 | INFO     | report | report_generator.py:76 | [cleanup] Dropped temp table: temp_a1_SACOMBANK_TOPUP_20260210_18022

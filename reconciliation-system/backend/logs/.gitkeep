@@ -1,0 +1,9 @@
+# Log files directory
+# Do not commit log files, only this .gitkeep
+
+# Log files are:
+# - app.log: General application logs
+# - error.log: Error logs only
+# - reconciliation.log: Reconciliation process logs
+# - api.log: API request/response logs
+# - report.log: Report generation logs

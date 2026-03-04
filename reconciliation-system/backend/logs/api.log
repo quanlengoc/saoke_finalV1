@@ -1,0 +1,108 @@
+2026-02-11 09:27:57 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/approvals/stats | Client: 127.0.0.1
+2026-02-11 09:27:57 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches | Client: 127.0.0.1
+2026-02-11 09:27:57 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/approvals/stats | Status: 401 | Time: 18.53ms
+2026-02-11 09:27:57 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches | Status: 401 | Time: 16.08ms
+2026-02-11 09:28:06 | INFO     | api | main.py:96 | REQUEST | POST /api/v1/auth/login | Client: 127.0.0.1
+2026-02-11 09:28:06 | INFO     | api | main.py:103 | RESPONSE | POST /api/v1/auth/login | Status: 200 | Time: 235.83ms
+2026-02-11 09:28:06 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/auth/me | Client: 127.0.0.1
+2026-02-11 09:28:06 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/auth/me | Status: 200 | Time: 9.29ms
+2026-02-11 09:28:06 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches | Client: 127.0.0.1
+2026-02-11 09:28:06 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/approvals/stats | Client: 127.0.0.1
+2026-02-11 09:28:06 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches | Status: 200 | Time: 33.14ms
+2026-02-11 09:28:07 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/approvals/stats | Status: 200 | Time: 35.20ms
+2026-02-11 09:28:10 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:28:10 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 11.98ms
+2026-02-11 09:28:10 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Client: 127.0.0.1
+2026-02-11 09:28:10 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Client: 127.0.0.1
+2026-02-11 09:28:10 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:28:10 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Status: 200 | Time: 354.52ms
+2026-02-11 09:28:10 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 487.54ms
+2026-02-11 09:28:10 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Status: 200 | Time: 490.56ms
+2026-02-11 09:28:50 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Client: 127.0.0.1
+2026-02-11 09:28:50 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Status: 200 | Time: 102.74ms
+2026-02-11 09:29:03 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Client: 127.0.0.1
+2026-02-11 09:29:03 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Status: 200 | Time: 99.68ms
+2026-02-11 09:29:36 | INFO     | api | main.py:96 | REQUEST | POST /api/v1/reports/generate/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:29:38 | INFO     | api | main.py:103 | RESPONSE | POST /api/v1/reports/generate/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 2035.99ms
+2026-02-11 09:29:38 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:29:38 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Client: 127.0.0.1
+2026-02-11 09:29:38 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Client: 127.0.0.1
+2026-02-11 09:29:38 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:29:39 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 866.89ms
+2026-02-11 09:29:39 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Status: 200 | Time: 870.23ms
+2026-02-11 09:29:39 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Status: 200 | Time: 870.82ms
+2026-02-11 09:29:39 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 869.87ms
+2026-02-11 09:29:52 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/download/SACOMBANK_TOPUP_20260210_192437/report | Client: 127.0.0.1
+2026-02-11 09:29:52 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/download/SACOMBANK_TOPUP_20260210_192437/report | Status: 200 | Time: 10.71ms
+2026-02-11 09:47:14 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/configs/ | Client: 127.0.0.1
+2026-02-11 09:47:14 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/configs/ | Status: 200 | Time: 145.82ms
+2026-02-11 09:51:04 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches | Client: 127.0.0.1
+2026-02-11 09:51:04 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/partners/partners | Client: 127.0.0.1
+2026-02-11 09:51:04 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches | Status: 200 | Time: 43.83ms
+2026-02-11 09:51:04 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/partners/partners | Status: 200 | Time: 43.03ms
+2026-02-11 09:51:05 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:51:05 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:51:05 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Client: 127.0.0.1
+2026-02-11 09:51:05 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Client: 127.0.0.1
+2026-02-11 09:51:05 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 19.99ms
+2026-02-11 09:51:06 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 946.99ms
+2026-02-11 09:51:06 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Status: 200 | Time: 945.30ms
+2026-02-11 09:51:06 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Status: 200 | Time: 944.22ms
+2026-02-11 09:52:13 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/configs/ | Client: 127.0.0.1
+2026-02-11 09:52:13 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/configs/ | Status: 200 | Time: 25.15ms
+2026-02-11 09:54:00 | INFO     | api | main.py:96 | REQUEST | PUT /api/v1/configs/1 | Client: 127.0.0.1
+2026-02-11 09:54:00 | INFO     | api | main.py:103 | RESPONSE | PUT /api/v1/configs/1 | Status: 200 | Time: 48.91ms
+2026-02-11 09:54:00 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/configs/ | Client: 127.0.0.1
+2026-02-11 09:54:00 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/configs/ | Status: 200 | Time: 12.19ms
+2026-02-11 09:54:42 | INFO     | api | main.py:96 | REQUEST | PUT /api/v1/configs/1 | Client: 127.0.0.1
+2026-02-11 09:54:42 | INFO     | api | main.py:103 | RESPONSE | PUT /api/v1/configs/1 | Status: 200 | Time: 15.11ms
+2026-02-11 09:54:42 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/configs/ | Client: 127.0.0.1
+2026-02-11 09:54:42 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/configs/ | Status: 200 | Time: 10.15ms
+2026-02-11 09:54:44 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches | Client: 127.0.0.1
+2026-02-11 09:54:44 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/partners/partners | Client: 127.0.0.1
+2026-02-11 09:54:44 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches | Status: 200 | Time: 36.72ms
+2026-02-11 09:54:44 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/partners/partners | Status: 200 | Time: 35.72ms
+2026-02-11 09:54:45 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:54:45 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Client: 127.0.0.1
+2026-02-11 09:54:45 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Client: 127.0.0.1
+2026-02-11 09:54:45 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Client: 127.0.0.1
+2026-02-11 09:54:45 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 20.93ms
+2026-02-11 09:54:46 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a1 | Status: 200 | Time: 999.32ms
+2026-02-11 09:54:46 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260210_192437 | Status: 200 | Time: 997.84ms
+2026-02-11 09:54:46 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260210_192437/a2 | Status: 200 | Time: 997.08ms
+2026-02-11 09:54:53 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/configs/ | Client: 127.0.0.1
+2026-02-11 09:54:53 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/configs/ | Status: 200 | Time: 19.56ms
+2026-02-11 09:55:17 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/partners/partners | Client: 127.0.0.1
+2026-02-11 09:55:17 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches | Client: 127.0.0.1
+2026-02-11 09:55:17 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/partners/partners | Status: 200 | Time: 23.41ms
+2026-02-11 09:55:17 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches | Status: 200 | Time: 22.48ms
+2026-02-11 09:55:18 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/partners/partners | Client: 127.0.0.1
+2026-02-11 09:55:18 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/partners/partners | Status: 200 | Time: 9.49ms
+2026-02-11 09:55:20 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/partners/services/SACOMBANK | Client: 127.0.0.1
+2026-02-11 09:55:20 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/partners/services/SACOMBANK | Status: 200 | Time: 11.16ms
+2026-02-11 09:56:20 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/check-duplicate | Client: 127.0.0.1
+2026-02-11 09:56:20 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/check-duplicate | Status: 200 | Time: 8.44ms
+2026-02-11 09:56:20 | INFO     | api | main.py:96 | REQUEST | POST /api/v1/reconciliation/upload | Client: 127.0.0.1
+2026-02-11 09:57:57 | INFO     | api | main.py:103 | RESPONSE | POST /api/v1/reconciliation/upload | Status: 200 | Time: 96860.38ms
+2026-02-11 09:57:59 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260211_095621 | Client: 127.0.0.1
+2026-02-11 09:57:59 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reconciliation/batches/SACOMBANK_TOPUP_20260211_095621 | Status: 200 | Time: 11.77ms
+2026-02-11 09:57:59 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260211_095621/a2 | Client: 127.0.0.1
+2026-02-11 09:57:59 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260211_095621/a1 | Client: 127.0.0.1
+2026-02-11 09:57:59 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260211_095621 | Client: 127.0.0.1
+2026-02-11 09:57:59 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260211_095621/a2 | Status: 200 | Time: 389.19ms
+2026-02-11 09:58:00 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/preview/SACOMBANK_TOPUP_20260211_095621/a1 | Status: 200 | Time: 794.70ms
+2026-02-11 09:58:00 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/reports/stats/SACOMBANK_TOPUP_20260211_095621 | Status: 200 | Time: 691.53ms
+2026-02-11 10:02:49 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/configs/SACOMBANK_TOPUP | Client: 127.0.0.1
+2026-02-11 10:02:49 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/configs/SACOMBANK_TOPUP | Status: 403 | Time: 0.00ms
+2026-02-11 10:13:47 | INFO     | api | main.py:96 | REQUEST | POST /api/v1/auth/login | Client: 127.0.0.1
+2026-02-11 10:13:47 | INFO     | api | main.py:103 | RESPONSE | POST /api/v1/auth/login | Status: 422 | Time: 11.15ms
+2026-02-11 10:13:49 | INFO     | api | main.py:96 | REQUEST | POST /api/v1/reconciliation/SACOMBANK_TOPUP_20260211_095621/process | Client: 127.0.0.1
+2026-02-11 10:13:49 | INFO     | api | main.py:103 | RESPONSE | POST /api/v1/reconciliation/SACOMBANK_TOPUP_20260211_095621/process | Status: 404 | Time: 1.01ms
+2026-02-11 14:47:50 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/mock-data | Client: 127.0.0.1
+2026-02-11 14:47:50 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/mock-data | Status: 307 | Time: 6.50ms
+2026-02-11 14:47:50 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/mock-data/ | Client: 127.0.0.1
+2026-02-11 14:47:50 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/mock-data/ | Status: 403 | Time: 2.12ms
+2026-02-11 14:47:51 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/mock-data | Client: 127.0.0.1
+2026-02-11 14:47:51 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/mock-data | Status: 307 | Time: 0.00ms
+2026-02-11 14:47:51 | INFO     | api | main.py:96 | REQUEST | GET /api/v1/mock-data/ | Client: 127.0.0.1
+2026-02-11 14:47:51 | INFO     | api | main.py:103 | RESPONSE | GET /api/v1/mock-data/ | Status: 403 | Time: 0.00ms

@@ -1,0 +1,34 @@
+2026-02-12 08:15:51 | INFO     | root | logging_config.py:134 | ============================================================
+2026-02-12 08:15:51 | INFO     | root | logging_config.py:135 | Application started at 2026-02-12T08:15:51.520925
+2026-02-12 08:15:51 | INFO     | root | logging_config.py:136 | Log directory: D:\AnhTM\VH-Works\PTDL - Quản lý Công việc\Report\FINDATAR_1905\Sokhop_saoke\reconciliation-system\backend\logs
+2026-02-12 08:15:51 | INFO     | root | logging_config.py:137 | Debug mode: True
+2026-02-12 08:15:51 | INFO     | root | logging_config.py:138 | ============================================================
+2026-02-12 08:15:51 | INFO     | app.main | main.py:33 | Initializing database (DB_TYPE=sqlite)...
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:2690 | BEGIN (implicit)
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("users")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("user_permissions")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("partner_service_config")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("reconciliation_logs")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:2696 | COMMIT
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:2690 | BEGIN (implicit)
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("users")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("user_permissions")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("partner_service_config")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | PRAGMA main.table_info("reconciliation_logs")
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [raw sql] ()
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:2696 | COMMIT
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:2690 | BEGIN (implicit)
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | SELECT users.id AS users_id, users.email AS users_email, users.password_hash AS users_password_hash, users.full_name AS users_full_name, users.is_admin AS users_is_admin, users.is_active AS users_is_active, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.email = ?
+ LIMIT ? OFFSET ?
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:1848 | [generated in 0.00070s] ('admin@vnpt.vn', 1, 0)
+2026-02-12 08:15:51 | INFO     | sqlalchemy.engine.Engine | base.py:2696 | COMMIT
+2026-02-12 08:15:51 | INFO     | app.main | main.py:48 | Application startup complete!

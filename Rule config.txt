@@ -1,0 +1,197 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CẤU HÌNH RULE SO KHỚP B1 ↔ B4                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ▼ Rule 1: So khớp Key                                                   │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                     │ │
+│  │  ┌─── BÊN TRÁI (B1) ───────────────────────────────────────────┐   │ │
+│  │  │                                                              │   │ │
+│  │  │  Công thức ghép:                                             │   │ │
+│  │  │  ┌──────────────────────────────────────────────────────────┐│   │ │
+│  │  │  │ [Cột: txn_ref    ▼] [+ Thêm]                             ││   │ │
+│  │  │  │ [Text: '-'        ] [+ Thêm]                             ││   │ │
+│  │  │  │ [Cột: txn_date   ▼] [+ Thêm]                             ││   │ │
+│  │  │  └──────────────────────────────────────────────────────────┘│   │ │
+│  │  │  Preview: B1['txn_ref'] || '-' || B1['txn_date']             │   │ │
+│  │  │                                                              │   │ │
+│  │  │  Transforms:  [✓] Strip  [✓] Upper  [ ] Lower  [ ] Trim số 0 │   │ │
+│  │  └──────────────────────────────────────────────────────────────┘   │ │
+│  │                                                                     │ │
+│  │  Kiểu so sánh:  (●) Bằng (=)  ( ) Chứa (LIKE)  ( ) Gần đúng        │ │
+│  │                                                                     │ │
+│  │  ┌─── BÊN PHẢI (B4) ───────────────────────────────────────────┐   │ │
+│  │  │                                                              │   │ │
+│  │  │  Công thức ghép:                                             │   │ │
+│  │  │  ┌──────────────────────────────────────────────────────────┐│   │ │
+│  │  │  │ [Text: 'VNP'      ] [+ Thêm]                             ││   │ │
+│  │  │  │ [Cột: partner_ref▼] [+ Thêm]                             ││   │ │
+│  │  │  └──────────────────────────────────────────────────────────┘│   │ │
+│  │  │  Preview: 'VNP' || B4['partner_ref']                         │   │ │
+│  │  │                                                              │   │ │
+│  │  │  Transforms:  [✓] Strip  [✓] Upper  [ ] Lower  [ ] Trim số 0 │   │ │
+│  │  └──────────────────────────────────────────────────────────────┘   │ │
+│  │                                                                     │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ▼ Rule 2: So khớp Số tiền                                               │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │  Cột B1: [amount     ▼]    Cột B4: [total_amount ▼]                │ │
+│  │  Cho phép lệch: [100] VNĐ                                          │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  [+ Thêm Rule]                                                           │
+│                                                                          │
+│  ──────────────────────────────────────────────────────────────────────  │
+│  [ ] Chế độ nâng cao (xem/sửa Expression)                                │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CẤU HÌNH RULE SO KHỚP B1 ↔ B4                          [Chế độ nâng cao]│
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ▼ Rule 1: key_match                                                     │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │  Expression (Pandas):                                               │ │
+│  │  ┌────────────────────────────────────────────────────────────────┐│ │
+│  │  │ b1['txn_id'].str.strip().str.upper() ==                        ││ │
+│  │  │ b4['transaction_ref'].str.strip().str.upper()                  ││ │
+│  │  └────────────────────────────────────────────────────────────────┘│ │
+│  │  [Reset về Simple]                                                  │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ▼ Rule 2: amount_match                                                  │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │  Expression (Pandas):                                               │ │
+│  │  ┌────────────────────────────────────────────────────────────────┐│ │
+│  │  │ abs(b1['amount'].astype(float) -                               ││ │
+│  │  │     b4['total_amount'].astype(float)) <= 0.01                  ││ │
+│  │  └────────────────────────────────────────────────────────────────┘│ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+// Frontend: Tự động generate expression từ config đơn giản
+function generateExpression(ruleConfig) {
+  const { ruleType, leftColumns, rightColumns, separator, transforms, matchMode, tolerance } = ruleConfig;
+  
+  if (ruleType === 'key_match') {
+    // Build left side
+    let leftExpr = buildColumnExpr('b1', leftColumns, separator, transforms);
+    let rightExpr = buildColumnExpr('b4', rightColumns, separator, transforms);
+    
+    if (matchMode === 'exact') {
+      return `${leftExpr} == ${rightExpr}`;
+    } else {
+      // Fuzzy - sẽ cần xử lý riêng
+      return `fuzzy_match(${leftExpr}, ${rightExpr}, threshold=${tolerance/100})`;
+    }
+  }
+  
+  if (ruleType === 'amount_match') {
+    let leftExpr = `b1['${leftColumns[0]}'].astype(float)`;
+    let rightExpr = `b4['${rightColumns[0]}'].astype(float)`;
+    return `abs(${leftExpr} - ${rightExpr}) <= ${tolerance}`;
+  }
+}
+
+function buildColumnExpr(prefix, columns, separator, transforms) {
+  let expr;
+  
+  if (columns.length === 1) {
+    expr = `${prefix}['${columns[0]}']`;
+  } else {
+    // Ghép nhiều cột
+    expr = columns.map(c => `${prefix}['${c}'].astype(str)`).join(` + '${separator}' + `);
+    expr = `(${expr})`;
+  }
+  
+  // Apply transforms
+  if (transforms.includes('strip')) expr += '.str.strip()';
+  if (transforms.includes('upper')) expr += '.str.upper()';
+  if (transforms.includes('lower')) expr += '.str.lower()';
+  
+  return expr;
+}
+
+{
+  "match_type": "expression",
+  "rules": [
+    {
+      "rule_name": "key_match",
+      "type": "expression",
+      "expression": "b1['txn_id'].str.strip().str.upper() == b4['transaction_ref'].str.strip().str.upper()",
+      
+      "_ui_config": {
+        "mode": "simple",
+        "leftColumns": ["txn_id"],
+        "rightColumns": ["transaction_ref"],
+        "separator": "",
+        "transforms": ["strip", "upper"],
+        "matchMode": "exact"
+      }
+    },
+    {
+      "rule_name": "amount_match", 
+      "type": "expression",
+      "expression": "abs(b1['amount'].astype(float) - b4['total_amount'].astype(float)) <= 0.01",
+      
+      "_ui_config": {
+        "mode": "simple",
+        "leftColumns": ["amount"],
+        "rightColumns": ["total_amount"],
+        "tolerance": 0.01,
+        "toleranceType": "absolute"
+      }
+    }
+  ],
+  "status_logic": {
+    "all_match": "MATCHED",
+    "key_match_amount_mismatch": "MISMATCH",
+    "no_key_match": "NOT_FOUND"
+  }
+}
+
+Hướng dẫn chạy 
+
+=== V1 (reconciliation-system) ===
+
+# Di chuyển vào thư mục backend
+cd d:\AnhTM\VH-Works\PTDL - Quản lý Công việc\Report\FINDATAR_1905\Sokhop_saoke\reconciliation-system\backend
+
+# Tạo virtual environment (chỉ cần làm 1 lần)
+python -m venv venv
+
+# Kích hoạt virtual environment
+.\venv\Scripts\activate
+
+# Cài đặt dependencies (chỉ cần làm 1 lần)
+pip install -r requirements.txt
+
+# Chạy server backend V1
+uvicorn app.main:app --reload --port 8000
+
+# Di chuyển vào thư mục frontend
+cd d:\AnhTM\VH-Works\PTDL - Quản lý Công việc\Report\FINDATAR_1905\Sokhop_saoke\reconciliation-system\frontend
+
+# Cài đặt dependencies (chỉ cần làm 1 lần)
+npm install
+
+# Chạy dev server
+npm run dev
+
+=== V2 (reconciliation-system-v2) - ĐANG DÙNG ===
+
+# Backend V2 - PORT 8001
+cd d:\AnhTM\VH-Works\PTDL - Quản lý Công việc\Report\FINDATAR_1905\Sokhop_saoke\reconciliation-system-v2\backend
+.\venv\Scripts\activate
+uvicorn app.main:app --reload --port 8001
+
+# Frontend V2 (proxy tới backend port 8001)
+cd d:\AnhTM\VH-Works\PTDL - Quản lý Công việc\Report\FINDATAR_1905\Sokhop_saoke\reconciliation-system-v2\frontend
+npm run dev
+
+
+cd reconciliation-system-v2\backend
+python app\utils\reset_stuck.py

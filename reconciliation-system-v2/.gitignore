@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Database
+# *.db
+*.sqlite3
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Environment
+.env
+.env.local
+config.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Build outputs
+frontend/dist/
+
+# Storage - keep structure but ignore uploaded/processed files
+backend/storage/uploads/*
+backend/storage/processed/*
+backend/storage/exports/*
+!backend/storage/uploads/.gitkeep
+!backend/storage/processed/.gitkeep
+!backend/storage/exports/.gitkeep
+
+storage/uploads/*
+storage/processed/*
+storage/exports/*
+!storage/uploads/.gitkeep
+!storage/processed/.gitkeep
+!storage/exports/.gitkeep
+
+# Templates - keep these
+!backend/storage/templates/
+!storage/templates/
+
+# Mock data - optional, can keep for testing
+# backend/storage/mock_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.xlsx
+*.xlbs
+data/app.db-shm
+data/app.db-wal
+DL_test

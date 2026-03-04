@@ -1,0 +1,23 @@
+2026-02-11 09:29:37 | INFO     | report | report_generator.py:76 | [init] Starting report generation for batch SACOMBANK_TOPUP_20260210_192437
+2026-02-11 09:29:37 | INFO     | report | report_generator.py:76 | [create_temp_table] Creating temp table: temp_a1_SACOMBANK_TOPUP_20260210_19243
+2026-02-11 09:29:37 | INFO     | report | report_generator.py:76 | [create_temp_table] A1 DataFrame has 95738 rows, columns: ['transaction_id', 'transaction_date', 'value_date', 'transaction_remarks', 'debit_amount', 'credit_amount', 'partner_transaction_id', 'bill_amount', 'partner_transaction_id_refund', 'amount_refund', 'status_b1b4', 'status_b1b2', 'final_status']
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [create_temp_table] Temp table created successfully
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [load_template] Loaded template: shared/report_topup.xlsx
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [load_template] Workbook sheets: ['Sheet1']
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Tổng hợp' not found, creating new sheet
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Tổng hợp
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [static_cell] Cell B2 = 'SACOMBANK'
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [static_cell] Cell B3 = '2026-02-10 - 2026-02-10'
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [static_cell] Cell B4 = '2026-02-11 09:29:38'
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [static_cell] Cell B5 = 'admin@vnpt.vn'
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [sql_cell] Cell A1 = 95738
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [sql_cell] Cell A2 = 38536.0
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [data_table] Got 1 rows for data table
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Tổng hợp
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [process_sheet] Sheet 'Chi tiết' not found, creating new sheet
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [process_sheet] Processing sheet: Chi tiết
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [data_table] Executing data query
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [data_table] Got 9 rows for data table
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [process_sheet] Completed sheet: Chi tiết
+2026-02-11 09:29:38 | INFO     | report | report_generator.py:76 | [cleanup] Dropped temp table: temp_a1_SACOMBANK_TOPUP_20260210_19243

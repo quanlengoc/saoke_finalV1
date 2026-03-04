@@ -1,0 +1,20 @@
+2026-02-10 19:25:55 | INFO     | reconciliation | reconciliation_engine.py:215 | Parsed key columns: b1[{'columns': ['transaction_remarks'], 'literals': ['transaction_remarks'], 'side_expr': "b1['transaction_remarks'].astype(str).str[5:17]"}] <-> b4[{'columns': ['partner_transaction_id'], 'literals': ['partner_transaction_id'], 'side_expr': "b4['partner_transaction_id'].astype(str)"}]
+2026-02-10 19:25:55 | INFO     | reconciliation | reconciliation_engine.py:426 | Applied slice transform [5:17]
+2026-02-10 19:25:55 | INFO     | reconciliation | reconciliation_engine.py:231 | Built match keys. Left unique keys: 95140, Right unique keys: 197735
+2026-02-10 19:25:55 | INFO     | reconciliation | reconciliation_engine.py:239 | Right side deduped: 197735 -> 197735 rows
+2026-02-10 19:25:55 | INFO     | reconciliation | reconciliation_engine.py:250 | Merge completed in 0.57s. Merged rows: 95738
+2026-02-10 19:25:56 | DEBUG    | reconciliation | reconciliation_engine.py:482 | Left amount transform (VECTORIZED): thousand_sep=',', decimal_sep=''
+2026-02-10 19:25:56 | DEBUG    | reconciliation | reconciliation_engine.py:495 | Amount comparison - Left: ['20,000' '100,000' '50,000'] -> [ 20000 100000  50000], Right: [ 20000 100000  50000] -> [ 20000 100000  50000]
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:287 | Matching completed in 0.91s. Results: 95738 rows, Matched: 90167
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:215 | Parsed key columns: b1[{'columns': ['transaction_remarks'], 'literals': ['transaction_remarks'], 'side_expr': "b1['transaction_remarks'].astype(str).str[5:17]"}] <-> b2[{'columns': ['partner_transaction_id'], 'literals': ['partner_transaction_id'], 'side_expr': "b2['partner_transaction_id'].astype(str).str.strip()"}]
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:426 | Applied slice transform [5:17]
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:231 | Built match keys. Left unique keys: 95140, Right unique keys: 89
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:239 | Right side deduped: 89 -> 89 rows
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:250 | Merge completed in 0.16s. Merged rows: 95738
+2026-02-10 19:25:56 | DEBUG    | reconciliation | reconciliation_engine.py:482 | Left amount transform (VECTORIZED): thousand_sep=',', decimal_sep=''
+2026-02-10 19:25:56 | DEBUG    | reconciliation | reconciliation_engine.py:495 | Amount comparison - Left: ['10,000' '50,000' '20,000'] -> [10000 50000 20000], Right: [10000 50000 20000] -> [10000 50000 20000]
+2026-02-10 19:25:56 | INFO     | reconciliation | reconciliation_engine.py:287 | Matching completed in 0.27s. Results: 95738 rows, Matched: 84
+2026-02-10 19:25:57 | INFO     | reconciliation | reconciliation_engine.py:837 | Building A1 with 13 columns, match_results has 95738 rows
+2026-02-10 19:25:57 | INFO     | reconciliation | reconciliation_engine.py:838 | B1 columns: ['transaction_id', 'transaction_date', 'value_date', 'transaction_remarks', 'debit_amount', 'credit_amount', 'running_balance'], B1 index range: 0-95737
+2026-02-10 19:25:57 | INFO     | reconciliation | reconciliation_engine.py:851 | First match: b1_idx=0, b1_row is found
+2026-02-10 19:25:57 | INFO     | reconciliation | reconciliation_engine.py:853 | First B1 row sample: {'transaction_id': 'FT25364WXD92\\BT3', 'transaction_date': '29/12/2025 21:41:26', 'value_date': '30/12/2025'}

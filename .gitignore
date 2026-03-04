@@ -1,0 +1,31 @@
+﻿# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Build
+dist/
+build/
+
+# Environment
+.env
+*.db-wal
+*.db
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+DL_Test
+*.xlsx
+*.xlsb
+*.csv
+# reconciliation-system-v2/backend/data/app.db-wal
+# reconciliation-system-v2/backend/data/app.db-shm
+
+# git rm --cached reconciliation-system-v2/backend/data/app.db-wal
+# git rm --cached reconciliation-system-v2/backend/data/app.db-shm
