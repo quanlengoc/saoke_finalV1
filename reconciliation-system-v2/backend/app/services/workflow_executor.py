@@ -10,6 +10,7 @@ Uses:
 """
 
 import time
+import threading
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dataclasses import dataclass
@@ -55,6 +56,33 @@ class WorkflowExecutor:
             for name, df in result.outputs.items():
                 print(f"{name}: {len(df)} rows")
     """
+    
+    # Class-level cancellation management (thread-safe)
+    _cancelled_batches = {}  # batch_id -> True
+    _cancellation_lock = threading.Lock()
+    
+    @classmethod
+    def cancel_batch(cls, batch_id: str):
+        """Mark a batch for cancellation"""
+        with cls._cancellation_lock:
+            cls._cancelled_batches[batch_id] = True
+    
+    @classmethod
+    def is_cancelled(cls, batch_id: str) -> bool:
+        """Check if batch is marked for cancellation"""
+        with cls._cancellation_lock:
+            return cls._cancelled_batches.get(batch_id, False)
+    
+    @classmethod
+    def reset_cancellation(cls, batch_id: str):
+        """Reset cancellation flag for a batch"""
+        with cls._cancellation_lock:
+            cls._cancelled_batches.pop(batch_id, None)
+    
+    def _check_cancelled(self):
+        """Check if this batch is cancelled and raise exception if so"""
+        if self.is_cancelled(self.batch_id):
+            raise RuntimeError(f"Batch {self.batch_id} has been cancelled by user")
     
     def __init__(
         self,
@@ -189,14 +217,17 @@ class WorkflowExecutor:
             # Step 1: Load all data sources
             self._log_step("load_data", "start", "Loading data sources...")
             self._load_all_data_sources()
+            self._check_cancelled()
             
             # Step 2: Execute workflow steps
             self._log_step("matching", "start", "Executing matching steps...")
             self._execute_workflow_steps()
+            self._check_cancelled()
             
             # Step 3: Build outputs
             self._log_step("build_outputs", "start", "Building outputs...")
             self._build_outputs()
+            self._check_cancelled()
             
             # Calculate stats
             self._calculate_stats()
@@ -243,13 +274,18 @@ class WorkflowExecutor:
             else:
                 self.datasets[ds.source_name.upper()] = result.data
                 # Build data preview (first 10 rows) showing only configured columns
-                preview = self._build_data_preview(
-                    result.data, ds.source_name, ds.display_name,
-                    data_source_config=ds
-                )
-                self._log_step(f"load_{ds.source_name}", "ok", 
-                               f"Loaded {ds.source_name}: {result.row_count} rows in {result.load_time_seconds:.2f}s",
-                               data_preview=preview)
+                if result.data is not None:
+                    preview = self._build_data_preview(
+                        result.data, ds.source_name, ds.display_name,
+                        data_source_config=ds
+                    )
+                    self._log_step(f"load_{ds.source_name}", "ok", 
+                                   f"Loaded {ds.source_name}: {result.row_count} rows in {result.load_time_seconds:.2f}s",
+                                   data_preview=preview)
+                else:
+                    # Optional source skipped (no file provided)
+                    self._log_step(f"load_{ds.source_name}", "ok",
+                                   f"Skipped optional source {ds.source_name} ({ds.display_name}): no file provided")
     
     def _load_single_source(self, ds: DataSourceConfig) -> DataLoaderResult:
         """Load a single data source"""
@@ -261,6 +297,17 @@ class WorkflowExecutor:
             cycle_params=self.cycle_params,
             batch_id=self.batch_id
         )
+        
+        # If loader is None, it means optional source without file - skip it
+        if loader is None:
+            return DataLoaderResult(
+                success=True,
+                data=None,
+                row_count=0,
+                source_name=ds.source_name,
+                source_type=ds.source_type,
+                error_message=None
+            )
         
         return loader.load()
     

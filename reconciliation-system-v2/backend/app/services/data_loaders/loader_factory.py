@@ -63,7 +63,13 @@ class DataLoaderFactory:
         
         if source_type == "FILE_UPLOAD":
             if not file_path:
-                raise ValueError(f"file_path required for FILE_UPLOAD source: {source_name}")
+                # Check if source is required
+                if data_source.is_required:
+                    raise ValueError(f"file_path required for FILE_UPLOAD source: {source_name}")
+                else:
+                    # Optional source without file - skip it
+                    self.logger.warning(f"[{batch_id or 'NO_BATCH'}] Optional FILE_UPLOAD source {source_name} has no file, will skip")
+                    return None
             
             return FileDataLoader(
                 source_name=source_name,

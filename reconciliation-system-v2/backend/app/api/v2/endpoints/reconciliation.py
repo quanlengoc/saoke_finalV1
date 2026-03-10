@@ -106,7 +106,8 @@ def _export_outputs_and_build_stats(
     for ds in config.data_sources:
         key = f"total_{ds.source_name.lower()}"
         ds_df = datasets.get(ds.source_name.upper(), pd.DataFrame())
-        summary_stats[key] = len(ds_df)
+        # Handle None (skipped optional sources) and empty DataFrames
+        summary_stats[key] = len(ds_df) if ds_df is not None else 0
     
     # Build matching_stats from workflow step results
     matching_stats = {}
@@ -428,6 +429,39 @@ async def delete_batch(
     return {"message": f"Đã xóa batch {batch_id} và toàn bộ dữ liệu liên quan"}
 
 
+@router.post("/{batch_id}/stop")
+async def stop_batch(
+    batch_id: str,
+    db: Session = Depends(get_db)
+):
+    """Stop a running batch (PROCESSING status)"""
+    batch = db.query(ReconciliationLog).filter(
+        ReconciliationLog.batch_id == batch_id
+    ).first()
+    
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    if batch.status != "PROCESSING":
+        raise HTTPException(status_code=400, 
+                          detail=f"Chỉ có thể dừng batch ở trạng thái PROCESSING, batch hiện tại: {batch.status}")
+    
+    # Mark batch for cancellation in WorkflowExecutor
+    WorkflowExecutor.cancel_batch(batch_id)
+    
+    # Update batch status to CANCELLED
+    batch.status = "CANCELLED"
+    batch.error_message = "Batch was cancelled by user"
+    batch.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {
+        "message": f"Batch {batch_id} đã được dừng",
+        "status": "CANCELLED"
+    }
+
+
 def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
                                 files_uploaded_info: dict, period_from, period_to,
                                 cycle_params: dict = None, run_number: int = 1,
@@ -545,10 +579,15 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
         err_db = None
         try:
             err_db = SessionLocal()
+            
+            # Check if this was a user cancellation
+            is_cancelled = "cancelled" in str(e).lower()
+            status = "CANCELLED" if is_cancelled else "FAILED"
+            
             err_db.query(ReconciliationLog).filter(
                 ReconciliationLog.batch_id == batch_id
             ).update({
-                ReconciliationLog.status: "FAILED",
+                ReconciliationLog.status: status,
                 ReconciliationLog.error_message: str(e),
                 ReconciliationLog.step_logs: log_file_rel,
             })
@@ -556,12 +595,16 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
                 BatchRunHistory.batch_id == batch_id,
                 BatchRunHistory.run_number == run_number,
             ).update({
-                BatchRunHistory.status: "FAILED",
+                BatchRunHistory.status: status,
                 BatchRunHistory.completed_at: datetime.utcnow(),
                 BatchRunHistory.error_message: str(e),
                 BatchRunHistory.log_file_path: log_file_rel,
             })
             err_db.commit()
+            
+            # Reset cancellation flag after handling
+            if is_cancelled:
+                WorkflowExecutor.reset_cancellation(batch_id)
         except:
             if err_db:
                 try:

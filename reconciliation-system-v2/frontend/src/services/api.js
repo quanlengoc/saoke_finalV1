@@ -99,6 +99,7 @@ export const reconciliationApi = {
   },
   getBatch: (batchId) => api.get(`/reconciliation/batches/${batchId}`),
   rerunBatch: (batchId) => api.post(`/reconciliation/batches/${batchId}/rerun`),
+  stopBatch: (batchId) => api.post(`/reconciliation/batches/${batchId}/stop`),
   checkDuplicate: (partnerCode, serviceCode, dateFrom, dateTo) => 
     api.get('/reconciliation/check-duplicate', { 
       params: { partner_code: partnerCode, service_code: serviceCode, date_from: dateFrom, date_to: dateTo } 
@@ -335,6 +336,7 @@ export const reconciliationApiV2 = {
   },
   getBatch: (batchId) => apiV2.get(`/reconciliation/batches/${batchId}`),
   rerunBatch: (batchId) => apiV2.post(`/reconciliation/batches/${batchId}/rerun`),
+  stopBatch: (batchId) => apiV2.post(`/reconciliation/batches/${batchId}/stop`),
   getRunLogs: (batchId, runNumber) => apiV2.get(`/reconciliation/batches/${batchId}/runs/${runNumber}/logs`),
 }
 

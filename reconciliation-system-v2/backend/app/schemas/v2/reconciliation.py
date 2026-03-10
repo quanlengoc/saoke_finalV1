@@ -17,6 +17,7 @@ class ReconciliationStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
 

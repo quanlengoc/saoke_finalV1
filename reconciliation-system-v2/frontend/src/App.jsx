@@ -46,7 +46,7 @@ function App() {
   }, [token])
   
   return (
-    <Routes>
+    <Routes basename="/Sokhop">
       {/* Auth routes */}
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />

@@ -24,10 +24,11 @@ class WorkflowService:
     # Valid status transitions
     VALID_TRANSITIONS = {
         'UPLOADING': ['PROCESSING', 'ERROR'],
-        'PROCESSING': ['COMPLETED', 'ERROR'],
+        'PROCESSING': ['COMPLETED', 'ERROR', 'CANCELLED'],  # Can be cancelled during processing
         'COMPLETED': ['APPROVED', 'UPLOADING'],  # Can approve or reset
         'APPROVED': ['UPLOADING'],  # Admin can reopen (reset)
         'ERROR': ['UPLOADING'],  # Can retry
+        'CANCELLED': ['UPLOADING'],  # Can retry after cancellation
     }
     
     def __init__(self, db: Session):

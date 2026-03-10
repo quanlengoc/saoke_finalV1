@@ -13,6 +13,7 @@ const statusColors = {
   'REJECTED': 'bg-red-100 text-red-800',
   'ERROR': 'bg-red-100 text-red-800',
   'FAILED': 'bg-red-100 text-red-800',
+  'CANCELLED': 'bg-orange-100 text-orange-800',
 }
 
 // Helper function to format timestamp dd-mm-yyyy hh24:mi:ss
@@ -601,6 +602,25 @@ export default function BatchDetailPage() {
     onError: (err) => toast.error(err.response?.data?.detail || 'Lỗi'),
   })
   
+  const stopMutation = useMutation({
+    mutationFn: async () => {
+      try {
+        return await reconciliationApiV2.stopBatch(batchId)
+      } catch {
+        return await reconciliationApi.stopBatch(batchId)
+      }
+    },
+    onSuccess: () => {
+      toast.success('Đã dừng batch')
+      queryClient.invalidateQueries({ queryKey: ['batch', batchId] })
+    },
+    onError: (err) => {
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : 'Lỗi khi dừng batch'
+      toast.error(msg)
+    },
+  })
+  
   // State for report generation logs
   const [reportLogs, setReportLogs] = useState(null)
   
@@ -692,12 +712,21 @@ export default function BatchDetailPage() {
               </button>
             )}
             {batch.status === 'PROCESSING' && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg">
-                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span className="text-sm font-medium">Đang xử lý...</span>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg">
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-sm font-medium">Đang xử lý...</span>
+                </div>
+                <button
+                  onClick={() => stopMutation.mutate()}
+                  disabled={stopMutation.isPending}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:opacity-50"
+                >
+                  {stopMutation.isPending ? 'Đang dừng...' : '🛑 Dừng'}
+                </button>
               </div>
             )}
           </div>
