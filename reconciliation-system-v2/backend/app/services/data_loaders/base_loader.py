@@ -80,34 +80,48 @@ class BaseDataLoader(ABC):
     def apply_column_mapping(self, df: pd.DataFrame, columns_config: Dict[str, str]) -> pd.DataFrame:
         """
         Apply column mapping/renaming
-        
+
         Args:
             df: Source DataFrame
             columns_config: Mapping of internal_name -> source_column
                            Example: {"txn_id": "A", "amount": "C"}
-        
+
         Returns:
-            DataFrame with renamed columns
+            DataFrame with renamed columns.
+            Khi có column mapping, chỉ giữ lại cột đã map + cột nội bộ (_prefix).
         """
         if not columns_config:
             return df
-        
-        # For Excel-style column letters (A, B, C, ...)
-        # First, check if values are letters
+
+        # Check if mapping uses Excel column letters (A, B, C...)
+        uses_position_mapping = any(
+            source_col.isalpha() and len(source_col) <= 2
+            for source_col in columns_config.values()
+        )
+
         rename_map = {}
         for internal_name, source_col in columns_config.items():
             if source_col in df.columns:
                 rename_map[source_col] = internal_name
             elif source_col.isalpha() and len(source_col) <= 2:
-                # Convert Excel column letter to index
                 col_idx = self._excel_col_to_index(source_col)
                 if col_idx < len(df.columns):
                     actual_col = df.columns[col_idx]
                     rename_map[actual_col] = internal_name
-        
+
         if rename_map:
             df = df.rename(columns=rename_map)
-        
+
+        # Khi mapping by position, chỉ giữ cột đã map + cột nội bộ (_prefix)
+        # Các cột không được map sẽ có tên gốc (số 0,1,2.. hoặc header text) → loại bỏ
+        if uses_position_mapping:
+            mapped_names = set(rename_map.values())
+            internal_cols = [c for c in df.columns if isinstance(c, str) and c.startswith('_')]
+            cols_to_keep = [c for c in df.columns if c in mapped_names or c in internal_cols]
+            total_before = len(df.columns)
+            df = df[cols_to_keep]
+            self.log('info', f"Column mapping applied: kept {len(cols_to_keep)} of {total_before} columns")
+
         return df
     
     def _excel_col_to_index(self, col: str) -> int:

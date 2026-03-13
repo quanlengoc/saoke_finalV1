@@ -9,11 +9,28 @@ const statusColors = {
   'UPLOADING': 'bg-gray-100 text-gray-800',
   'PROCESSING': 'bg-yellow-100 text-yellow-800',
   'COMPLETED': 'bg-green-100 text-green-800',
-  'APPROVED': 'bg-blue-100 text-blue-800',
-  'REJECTED': 'bg-red-100 text-red-800',
   'ERROR': 'bg-red-100 text-red-800',
-  'FAILED': 'bg-red-100 text-red-800',
   'CANCELLED': 'bg-orange-100 text-orange-800',
+  'PENDING_APPROVAL': 'bg-purple-100 text-purple-800',
+  'APPROVED': 'bg-blue-100 text-blue-800',
+  // Legacy
+  'REJECTED': 'bg-red-100 text-red-800',
+  'FAILED': 'bg-red-100 text-red-800',
+  'PENDING': 'bg-yellow-100 text-yellow-800',
+}
+
+const statusLabels = {
+  'UPLOADING': 'Khởi tạo',
+  'PROCESSING': 'Đang xử lý',
+  'COMPLETED': 'Hoàn tất',
+  'ERROR': 'Lỗi',
+  'CANCELLED': 'Tạm dừng',
+  'PENDING_APPROVAL': 'Chờ phê duyệt',
+  'APPROVED': 'Đã phê duyệt',
+  // Legacy
+  'REJECTED': 'Từ chối (cũ)',
+  'FAILED': 'Thất bại (cũ)',
+  'PENDING': 'Chờ xử lý (cũ)',
 }
 
 // Helper function to format timestamp dd-mm-yyyy hh24:mi:ss
@@ -500,11 +517,91 @@ function RunHistoryTab({ batch, expandedPreviews, setExpandedPreviews, selectedR
   )
 }
 
+const auditActionLabels = {
+  'SUBMIT': 'Gửi phê duyệt',
+  'APPROVE': 'Phê duyệt',
+  'REJECT': 'Từ chối',
+  'CREATE': 'Tạo mới',
+  'UPDATE': 'Cập nhật',
+  'RUN': 'Chạy đối soát',
+  'RERUN': 'Chạy lại',
+  'STOP': 'Dừng',
+}
+
+function AuditHistoryTab({ batchId }) {
+  const { data: auditData, isLoading } = useQuery({
+    queryKey: ['auditHistory', batchId],
+    queryFn: () => approvalsApi.getHistory(batchId),
+    enabled: !!batchId,
+  })
+
+  const logs = auditData?.data || []
+
+  if (isLoading) {
+    return <div className="text-center py-8 text-gray-500">Đang tải...</div>
+  }
+
+  if (logs.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        <div className="text-4xl mb-3">🕐</div>
+        <p>Chưa có lịch sử chuyển trạng thái</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-0">
+      {/* Timeline */}
+      <div className="relative">
+        {logs.map((log, idx) => (
+          <div key={idx} className="flex gap-4 pb-6 relative">
+            {/* Timeline line */}
+            {idx < logs.length - 1 && (
+              <div className="absolute left-[15px] top-8 bottom-0 w-0.5 bg-gray-200" />
+            )}
+            {/* Dot */}
+            <div className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${
+              log.action === 'APPROVE' ? 'bg-green-500' :
+              log.action === 'REJECT' ? 'bg-red-500' :
+              log.action === 'SUBMIT' ? 'bg-blue-500' :
+              'bg-gray-400'
+            }`}>
+              {log.action === 'APPROVE' ? '✓' :
+               log.action === 'REJECT' ? '✕' :
+               log.action === 'SUBMIT' ? '→' : '•'}
+            </div>
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-gray-800">
+                  {auditActionLabels[log.action] || log.action}
+                </span>
+                {log.old_values?.status && log.new_values?.status && (
+                  <span className="text-xs text-gray-500">
+                    {statusLabels[log.old_values.status] || log.old_values.status} → {statusLabels[log.new_values.status] || log.new_values.status}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {log.user_email} • {formatTimestamp(log.timestamp)}
+              </p>
+              {log.summary && (
+                <p className="text-xs text-gray-400 mt-1">{log.summary}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function BatchDetailPage() {
   const { batchId } = useParams()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
-  const [activeMainTab, setActiveMainTab] = useState('results') // results, report, history
+  const [activeMainTab, setActiveMainTab] = useState('results') // results, report, history, audit
   const [expandedPreviews, setExpandedPreviews] = useState({}) // track which data previews are open
   const [selectedRunNumber, setSelectedRunNumber] = useState(null) // which run's logs to view
   
@@ -529,7 +626,7 @@ export default function BatchDetailPage() {
     },
   })
   
-  // Detect status transitions (PROCESSING → COMPLETED/FAILED) and show toast
+  // Detect status transitions (PROCESSING → COMPLETED/ERROR) and show toast
   useEffect(() => {
     const currentStatus = batchData?.data?.status
     if (prevStatusRef.current === 'PROCESSING' && currentStatus && currentStatus !== 'PROCESSING') {
@@ -538,11 +635,10 @@ export default function BatchDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['stats', batchId] })
       queryClient.invalidateQueries({ queryKey: ['preview', batchId] })
       if (currentStatus === 'COMPLETED') {
-        toast.success('Đã chạy lại đối soát thành công!')
+        toast.success('Đối soát hoàn tất thành công!')
         setActiveMainTab('results')
-      } else if (currentStatus === 'FAILED' || currentStatus === 'ERROR') {
-        toast.error('Chạy lại thất bại: ' + (batchData?.data?.error_message || 'Lỗi không xác định'))
-        // Stay on history tab to show error logs
+      } else if (currentStatus === 'ERROR') {
+        toast.error('Đối soát thất bại: ' + (batchData?.data?.error_message || 'Lỗi không xác định'))
       }
     }
     // Auto-switch to history tab when page loads with PROCESSING status
@@ -550,8 +646,8 @@ export default function BatchDetailPage() {
       setIsRerunTriggered(true)
       setActiveMainTab('history')
     }
-    // Auto-switch to history tab when page loads with FAILED/ERROR and there are step_logs
-    if (['FAILED', 'ERROR'].includes(currentStatus) && !prevStatusRef.current && batchData?.data?.step_logs?.length > 0) {
+    // Auto-switch to history tab when page loads with ERROR/FAILED and there are step_logs
+    if ((currentStatus === 'ERROR' || currentStatus === 'FAILED') && !prevStatusRef.current && batchData?.data?.step_logs?.length > 0) {
       setActiveMainTab('history')
     }
     prevStatusRef.current = currentStatus
@@ -663,14 +759,9 @@ export default function BatchDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-gray-800">{batch.batch_id}</h1>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[batch.status]}`}>
-                {batch.status}
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[batch.status] || 'bg-gray-100 text-gray-800'}`}>
+                {statusLabels[batch.status] || batch.status}
               </span>
-              {batch.is_locked && (
-                <span className="px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                  🔒 Đã khóa
-                </span>
-              )}
             </div>
             <p className="text-gray-500 mt-1">
               {batch.partner_code} / {batch.service_code} • Kỳ: {batch.period_from} - {batch.period_to}
@@ -684,7 +775,8 @@ export default function BatchDetailPage() {
           </div>
           
           <div className="flex gap-2">
-            {batch.status === 'COMPLETED' && !batch.is_locked && (
+            {/* COMPLETED: Chạy lại + Gửi phê duyệt */}
+            {batch.status === 'COMPLETED' && (
               <>
                 <button
                   onClick={() => rerunMutation.mutate()}
@@ -702,14 +794,21 @@ export default function BatchDetailPage() {
                 </button>
               </>
             )}
-            {['ERROR', 'FAILED', 'UPLOADING'].includes(batch.status) && !batch.is_locked && (
+            {/* ERROR / CANCELLED / UPLOADING: Chạy lại */}
+            {['ERROR', 'CANCELLED', 'UPLOADING'].includes(batch.status) && (
               <button
                 onClick={() => rerunMutation.mutate()}
                 disabled={rerunMutation.isPending}
                 className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
               >
-                🔄 Chạy lại
+                Chạy lại
               </button>
+            )}
+            {/* PENDING_APPROVAL: hiển thị trạng thái */}
+            {batch.status === 'PENDING_APPROVAL' && (
+              <div className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm font-medium">
+                Đang chờ phê duyệt
+              </div>
             )}
             {batch.status === 'PROCESSING' && (
               <div className="flex items-center gap-2">
@@ -794,18 +893,18 @@ export default function BatchDetailPage() {
       )}
       
       {/* MAIN TABS: Kết quả | Báo cáo | Lịch sử */}
-      {['COMPLETED', 'APPROVED', 'PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) && (
+      {['COMPLETED', 'APPROVED', 'PENDING_APPROVAL', 'PROCESSING', 'ERROR', 'FAILED', 'CANCELLED'].includes(batch.status) && (
         <div className="bg-white rounded-xl shadow-sm">
           <div className="border-b flex">
             <button
-              onClick={() => !['PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) && setActiveMainTab('results')}
-              className={`py-3 px-6 font-medium transition ${activeMainTab === 'results' && !['PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'} ${['PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) ? 'opacity-40 cursor-not-allowed' : ''}`}
+              onClick={() => !['PROCESSING', 'ERROR', 'FAILED'].includes(batch.status) && setActiveMainTab('results')}
+              className={`py-3 px-6 font-medium transition ${activeMainTab === 'results' && !['PROCESSING', 'ERROR', 'FAILED'].includes(batch.status) ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'} ${['PROCESSING', 'ERROR', 'FAILED'].includes(batch.status) ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               📊 Kết quả
             </button>
             <button
-              onClick={() => !['PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) && setActiveMainTab('report')}
-              className={`py-3 px-6 font-medium transition ${activeMainTab === 'report' && !['PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) ? 'border-b-2 border-green-600 text-green-600' : 'text-gray-500 hover:text-gray-700'} ${['PROCESSING', 'FAILED', 'ERROR'].includes(batch.status) ? 'opacity-40 cursor-not-allowed' : ''}`}
+              onClick={() => !['PROCESSING', 'ERROR', 'FAILED'].includes(batch.status) && setActiveMainTab('report')}
+              className={`py-3 px-6 font-medium transition ${activeMainTab === 'report' && !['PROCESSING', 'ERROR', 'FAILED'].includes(batch.status) ? 'border-b-2 border-green-600 text-green-600' : 'text-gray-500 hover:text-gray-700'} ${['PROCESSING', 'ERROR', 'FAILED'].includes(batch.status) ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               📄 Báo cáo
             </button>
@@ -822,6 +921,12 @@ export default function BatchDetailPage() {
               {batch.status === 'PROCESSING' && (
                 <span className="ml-2 inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
               )}
+            </button>
+            <button
+              onClick={() => setActiveMainTab('audit')}
+              className={`py-3 px-6 font-medium transition ${activeMainTab === 'audit' ? 'border-b-2 border-amber-600 text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              🕐 Lịch sử trạng thái
             </button>
           </div>
           
@@ -1083,6 +1188,11 @@ export default function BatchDetailPage() {
                 selectedRunNumber={selectedRunNumber}
                 setSelectedRunNumber={setSelectedRunNumber}
               />
+            )}
+
+            {/* ===== TAB: LỊCH SỬ TRẠNG THÁI ===== */}
+            {activeMainTab === 'audit' && (
+              <AuditHistoryTab batchId={batchId} />
             )}
           </div>
         </div>

@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import DataSourceConfig, PartnerServiceConfig
+from app.api.deps import get_current_user, get_current_admin
+from app.models import DataSourceConfig, PartnerServiceConfig, User
 from app.schemas.v2.data_source import (
     DataSourceConfigCreate,
     DataSourceConfigUpdate,
@@ -22,7 +23,8 @@ router = APIRouter()
 @router.get("/by-config/{config_id}", response_model=List[DataSourceConfigResponse])
 async def list_data_sources(
     config_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """List all data sources for a config"""
     data_sources = db.query(DataSourceConfig).filter(
@@ -35,7 +37,8 @@ async def list_data_sources(
 @router.get("/{source_id}", response_model=DataSourceConfigResponse)
 async def get_data_source(
     source_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """Get data source by ID"""
     source = db.query(DataSourceConfig).filter(DataSourceConfig.id == source_id).first()
@@ -49,7 +52,8 @@ async def get_data_source(
 @router.post("/", response_model=DataSourceConfigResponse)
 async def create_data_source(
     data: DataSourceConfigCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Create a new data source"""
     # Verify config exists
@@ -102,7 +106,8 @@ async def create_data_source(
 async def update_data_source(
     source_id: int,
     data: DataSourceConfigUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Update data source by ID"""
     source = db.query(DataSourceConfig).filter(DataSourceConfig.id == source_id).first()
@@ -131,7 +136,8 @@ async def update_data_source(
 @router.delete("/{source_id}")
 async def delete_data_source(
     source_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Delete data source by ID"""
     source = db.query(DataSourceConfig).filter(DataSourceConfig.id == source_id).first()

@@ -174,7 +174,7 @@ class FileDataLoader(BaseDataLoader):
             return df
 
         for col in df.columns:
-            if col.startswith('_'):  # skip internal columns
+            if isinstance(col, str) and col.startswith('_'):  # skip internal columns
                 continue
             if df[col].dtype == object and not df[col].isna().all():
                 nunique = df[col].nunique()
@@ -213,11 +213,20 @@ class FileDataLoader(BaseDataLoader):
             self.log('info', f"Loading from: {self.file_path}")
             
             # Get config values
-            header_row = self.config.get('header_row', 1) - 1  # Convert to 0-based
-            data_start_row = self.config.get('data_start_row', 2) - 1
-            sheet_name = self.config.get('sheet_name', 0)  # Default first sheet
             columns_config = self.config.get('columns', {})
             transforms = self.config.get('transforms', {})
+            sheet_name = self.config.get('sheet_name', 0)  # Default first sheet
+            data_start_row = self.config.get('data_start_row', 2) - 1  # Convert to 0-based
+
+            # Khi có columns_config (mapping by Excel position), header_row không cần thiết
+            # vì user đã chỉ định alias cho từng cột theo vị trí (A, B, C...)
+            # → đọc file với header=None, chỉ dùng data_start_row
+            has_column_mapping = bool(columns_config)
+            if has_column_mapping:
+                header_row = None  # Signal to readers: no header row
+                self.log('info', f"Column mapping configured — ignoring header_row, data starts at row {data_start_row + 1}")
+            else:
+                header_row = self.config.get('header_row', 1) - 1  # Convert to 0-based
             
             # Collect all files to process
             files = self._collect_files()
@@ -240,7 +249,7 @@ class FileDataLoader(BaseDataLoader):
             
             for file_path in files:
                 try:
-                    chunk_df = self._read_single_file(file_path, header_row, data_start_row, sheet_name)
+                    chunk_df = self._read_single_file(file_path, header_row, data_start_row, sheet_name, has_column_mapping)
                     if not chunk_df.empty:
                         # Add file source tracking
                         chunk_df['_file_source'] = file_path.name
@@ -318,15 +327,16 @@ class FileDataLoader(BaseDataLoader):
             # Always cleanup temp directories
             self._cleanup_temp_dirs()
     
-    def _read_single_file(self, file_path: Path, header_row: int, 
-                          data_start_row: int, sheet_name) -> pd.DataFrame:
+    def _read_single_file(self, file_path: Path, header_row,
+                          data_start_row: int, sheet_name,
+                          has_column_mapping: bool = False) -> pd.DataFrame:
         """Read a single data file"""
         suffix = file_path.suffix.lower()
-        
+
         if suffix == '.csv':
-            return self._read_csv(file_path, header_row, data_start_row)
+            return self._read_csv(file_path, header_row, data_start_row, has_column_mapping)
         elif suffix in {'.xlsx', '.xls', '.xlsb'}:
-            return self._read_excel(file_path, header_row, data_start_row, sheet_name)
+            return self._read_excel(file_path, header_row, data_start_row, sheet_name, has_column_mapping)
         else:
             raise ValueError(f"Unsupported file type: {suffix}")
     
@@ -364,30 +374,46 @@ class FileDataLoader(BaseDataLoader):
             pass
         return 0  # Default to first row
     
-    def _read_csv(self, file_path: Path, header_row: int, data_start_row: int) -> pd.DataFrame:
+    def _read_csv(self, file_path: Path, header_row, data_start_row: int,
+                  has_column_mapping: bool = False) -> pd.DataFrame:
         """Read CSV file with auto-detection of preamble/header"""
-        # Try different encodings
         encodings = ['utf-8', 'utf-8-sig', 'latin1', 'cp1252']
         df = None
-        
+
+        if has_column_mapping:
+            # Có column mapping → đọc không header, skip đến data_start_row
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(
+                        file_path,
+                        header=None,  # Không dùng header
+                        skiprows=data_start_row,  # Skip tất cả dòng trước data
+                        encoding=encoding,
+                        dtype=str
+                    )
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if df is None:
+                raise ValueError(f"Could not read CSV with any supported encoding")
+            return df.reset_index(drop=True)
+
+        # Không có column mapping → giữ logic cũ (đọc với header row)
         for encoding in encodings:
             try:
-                # Calculate skiprows
                 skiprows = list(range(header_row)) if header_row > 0 else None
-                
                 df = pd.read_csv(
                     file_path,
-                    header=0,  # First row after skiprows is header
+                    header=0,
                     skiprows=skiprows,
                     encoding=encoding,
-                    dtype=str  # Read all as string to preserve leading zeros
+                    dtype=str
                 )
                 break
             except UnicodeDecodeError:
                 continue
             except Exception as parse_error:
-                # If parsing fails (e.g., preamble before CSV data), try auto-detecting header
-                if header_row == 0:  # Only auto-detect if user configured header_row=1 (0-based=0)
+                if header_row == 0:
                     self.log('warning', f"CSV parse failed with header_row={header_row}, attempting auto-detection: {parse_error}")
                     detected_row = self._detect_csv_header_row(file_path, encoding)
                     if detected_row > 0:
@@ -400,7 +426,6 @@ class FileDataLoader(BaseDataLoader):
                                 encoding=encoding,
                                 dtype=str
                             )
-                            # Adjust data_start_row relative to new header
                             data_start_row = detected_row + 1
                             header_row = detected_row
                             break
@@ -408,34 +433,31 @@ class FileDataLoader(BaseDataLoader):
                             self.log('warning', f"Auto-detect retry also failed: {e2}")
                             continue
                 else:
-                    # Re-raise if not auto-detectable
                     raise
-        
+
         if df is None:
             raise ValueError(f"Could not read CSV with any supported encoding")
-        
-        # Skip rows before data_start_row
+
         rows_to_skip = data_start_row - header_row - 1
         if rows_to_skip > 0:
             df = df.iloc[rows_to_skip:]
-        
+
         return df.reset_index(drop=True)
     
-    def _read_excel(self, file_path: Path, header_row: int, 
-                    data_start_row: int, sheet_name) -> pd.DataFrame:
+    def _read_excel(self, file_path: Path, header_row,
+                    data_start_row: int, sheet_name,
+                    has_column_mapping: bool = False) -> pd.DataFrame:
         """Read Excel file (xlsx, xls, xlsb)"""
         suffix = file_path.suffix.lower()
-        
+
         # Normalize empty/None sheet_name to default (first sheet = 0)
         if sheet_name is None or (isinstance(sheet_name, str) and sheet_name.strip() == ''):
             sheet_name = 0
-        
+
         # For xlsb files, need pyxlsb engine
         engine = None
         if suffix == '.xlsb':
             engine = 'pyxlsb'
-            # pyxlsb doesn't support sheet_name as integer index well
-            # Resolve sheet name string from index if needed
             if isinstance(sheet_name, int):
                 try:
                     from pyxlsb import open_workbook
@@ -453,17 +475,39 @@ class FileDataLoader(BaseDataLoader):
                     self.log('warning', f"xlsb: Could not resolve sheet name from index: {e}")
         elif suffix == '.xls':
             engine = 'xlrd'
-        
+
+        if has_column_mapping:
+            # Có column mapping → đọc không header, skip đến data_start_row
+            try:
+                df = pd.read_excel(
+                    file_path,
+                    sheet_name=sheet_name,
+                    header=None,  # Không dùng header
+                    skiprows=data_start_row,  # Skip tất cả dòng trước data
+                    dtype=str,
+                    engine=engine
+                )
+            except Exception as e:
+                self.log('warning', f"Failed with engine={engine}, trying default: {e}")
+                df = pd.read_excel(
+                    file_path,
+                    sheet_name=sheet_name,
+                    header=None,
+                    skiprows=data_start_row,
+                    dtype=str
+                )
+            return df.reset_index(drop=True)
+
+        # Không có column mapping → giữ logic cũ
         try:
             df = pd.read_excel(
                 file_path,
                 sheet_name=sheet_name,
                 header=header_row,
-                dtype=str,  # Read all as string to preserve leading zeros
+                dtype=str,
                 engine=engine
             )
         except Exception as e:
-            # Try with default engine if specific engine fails
             self.log('warning', f"Failed with engine={engine}, trying default: {e}")
             df = pd.read_excel(
                 file_path,
@@ -471,10 +515,9 @@ class FileDataLoader(BaseDataLoader):
                 header=header_row,
                 dtype=str
             )
-        
-        # Skip rows before data_start_row
+
         rows_to_skip = data_start_row - header_row - 1
         if rows_to_skip > 0:
             df = df.iloc[rows_to_skip:]
-        
+
         return df.reset_index(drop=True)

@@ -5,14 +5,16 @@ from app.models.data_source import DataSourceConfig
 from app.models.workflow import WorkflowStep
 from app.models.output import OutputConfig
 from app.models.reconciliation import ReconciliationLog, BatchRunHistory
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "User",
-    "UserPermission", 
+    "UserPermission",
     "PartnerServiceConfig",
     "DataSourceConfig",
     "WorkflowStep",
     "OutputConfig",
     "ReconciliationLog",
     "BatchRunHistory",
+    "AuditLog",
 ]

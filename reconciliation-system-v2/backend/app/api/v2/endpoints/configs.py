@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
 from app.core.database import get_db
-from app.models import PartnerServiceConfig, DataSourceConfig, WorkflowStep, OutputConfig
+from app.api.deps import get_current_user, get_current_admin
+from app.models import PartnerServiceConfig, DataSourceConfig, WorkflowStep, OutputConfig, User
 from app.schemas.v2.config import (
     PartnerServiceConfigCreate,
     PartnerServiceConfigUpdate,
@@ -84,7 +85,8 @@ async def list_configs(
     partner_code: Optional[str] = None,
     service_code: Optional[str] = None,
     is_active: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """List all configs with pagination and filtering"""
     query = db.query(PartnerServiceConfig).options(
@@ -125,7 +127,8 @@ async def list_configs(
 @router.get("/{config_id}", response_model=PartnerServiceConfigResponse)
 async def get_config(
     config_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """Get config by ID with all related data"""
     config = db.query(PartnerServiceConfig).options(
@@ -144,7 +147,8 @@ async def get_config(
 async def get_config_by_code(
     partner_code: str,
     service_code: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """Get active config by partner and service code"""
     config = db.query(PartnerServiceConfig).filter(
@@ -162,7 +166,8 @@ async def get_config_by_code(
 @router.post("/", response_model=PartnerServiceConfigResponse)
 async def create_config(
     data: PartnerServiceConfigCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Create a new config
     
@@ -222,7 +227,8 @@ async def create_config(
 async def update_config(
     config_id: int,
     data: PartnerServiceConfigUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Update config by ID"""
     config = db.query(PartnerServiceConfig).filter(PartnerServiceConfig.id == config_id).first()
@@ -246,7 +252,8 @@ async def update_config(
 @router.delete("/{config_id}")
 async def delete_config(
     config_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Delete config and all related data (cascade)"""
     config = db.query(PartnerServiceConfig).filter(PartnerServiceConfig.id == config_id).first()

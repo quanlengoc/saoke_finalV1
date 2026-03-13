@@ -1044,17 +1044,20 @@ function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, on
                 <div className="border-t pt-4">
                   <h4 className="font-medium text-blue-800 mb-4">📄 Cấu hình File Upload</h4>
                   
-                  <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Dòng Header</label>
-                      <input
-                        type="number"
-                        value={editForm.file_config?.header_row || 1}
-                        onChange={(e) => handleConfigChange('file_config', 'header_row', parseInt(e.target.value) || 1)}
-                        className="w-full px-3 py-2 border rounded-lg"
-                        min="1"
-                      />
-                    </div>
+                  <div className={`grid ${getColumnsArray().length > 0 ? 'grid-cols-2' : 'grid-cols-3'} gap-4 mb-4`}>
+                    {/* Ẩn Dòng Header khi đã cấu hình Column Mapping — không cần thiết vì cột được xác định bằng vị trí Excel */}
+                    {getColumnsArray().length === 0 && (
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Dòng Header</label>
+                        <input
+                          type="number"
+                          value={editForm.file_config?.header_row || 1}
+                          onChange={(e) => handleConfigChange('file_config', 'header_row', parseInt(e.target.value) || 1)}
+                          className="w-full px-3 py-2 border rounded-lg"
+                          min="1"
+                        />
+                      </div>
+                    )}
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">Dòng bắt đầu dữ liệu</label>
                       <input
@@ -1470,6 +1473,33 @@ function WorkflowTab({
         delete stepData.isNew
         delete stepData.isModified
         delete stepData.isDeleted
+
+        // Clean matching_rules: chỉ giữ data của mode đang dùng
+        if (stepData.matching_rules) {
+          const mr = { ...stepData.matching_rules }
+          if (mr.mode === 'advanced') {
+            // Advanced mode: chỉ giữ expression, xóa simple config
+            if (mr.key_match) {
+              const { left, right, ...restKey } = mr.key_match
+              mr.key_match = restKey
+            }
+            if (mr.amount_match) {
+              const { left_column, right_column, left, right, tolerance, tolerance_type, ...restAmt } = mr.amount_match
+              mr.amount_match = restAmt
+            }
+          } else {
+            // Simple mode: xóa expression field
+            if (mr.key_match) {
+              const { expression, ...restKey } = mr.key_match
+              mr.key_match = restKey
+            }
+            if (mr.amount_match) {
+              const { expression, ...restAmt } = mr.amount_match
+              mr.amount_match = restAmt
+            }
+          }
+          stepData.matching_rules = mr
+        }
         
         if (step.isNew || String(step.id).startsWith('new_')) {
           // Create new
@@ -2563,11 +2593,12 @@ function MatchingRulesEditorV2({
   leftLabel = 'Trái',
   rightLabel = 'Phải'
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  // Restore mode from saved matching_rules.mode ('advanced' | 'simple' | undefined)
+  const [showAdvanced, setShowAdvanced] = useState((step.matching_rules || {}).mode === 'advanced')
   const [showJson, setShowJson] = useState(false)
   const [textInputs, setTextInputs] = useState({})
   const [expandedPanels, setExpandedPanels] = useState({})
-  
+
   // Safe helpers
   const safeArray = (val) => Array.isArray(val) ? val : []
   const safeObj = (val) => (val && typeof val === 'object' && !Array.isArray(val)) ? val : {}
@@ -2996,13 +3027,18 @@ function MatchingRulesEditorV2({
           <input
             type="checkbox"
             checked={showAdvanced}
-            onChange={(e) => setShowAdvanced(e.target.checked)}
+            onChange={(e) => {
+              const isAdvanced = e.target.checked
+              setShowAdvanced(isAdvanced)
+              // Persist mode preference into matching_rules so it restores on reload
+              updateMatchingRules({ mode: isAdvanced ? 'advanced' : 'simple' })
+            }}
             className="rounded border-gray-300 text-blue-600 mr-1"
           />
           Mode nâng cao (raw expression)
         </label>
       </div>
-      
+
       {/* KEY MATCH Section */}
       <div className="bg-blue-50 rounded-xl p-4">
         <div className="flex items-center gap-2 mb-4">
@@ -3437,15 +3473,15 @@ function MatchingRulesEditorV2({
         <div className="mb-3">
           <label className="block text-xs text-gray-500 mb-1">Key Match Expression:</label>
           <div className="bg-white p-2 rounded border font-mono text-xs break-all text-gray-700">
-            {generateKeyExpression() || <span className="text-gray-400 italic">Chưa cấu hình</span>}
+            {(showAdvanced ? keyMatch.expression : generateKeyExpression()) || <span className="text-gray-400 italic">Chưa cấu hình</span>}
           </div>
         </div>
-        
+
         {/* Amount Match Expression */}
         <div className="mb-3">
           <label className="block text-xs text-gray-500 mb-1">Amount Match Expression:</label>
           <div className="bg-white p-2 rounded border font-mono text-xs break-all text-gray-700">
-            {generateAmountExpression() || <span className="text-gray-400 italic">Chưa cấu hình</span>}
+            {(showAdvanced ? amountMatch.expression : generateAmountExpression()) || <span className="text-gray-400 italic">Chưa cấu hình</span>}
           </div>
         </div>
         

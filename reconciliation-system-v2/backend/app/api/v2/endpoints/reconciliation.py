@@ -10,7 +10,7 @@ import threading
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import os
 import shutil
 import logging
@@ -22,12 +22,16 @@ ALLOWED_EXTENSIONS = {'.xlsx', '.xls', '.xlsb', '.csv', '.zip'}
 
 from app.core.database import get_db
 from app.core.config import get_settings
+from app.api.deps import get_current_user
 from app.models import (
-    PartnerServiceConfig, 
+    PartnerServiceConfig,
     DataSourceConfig,
     ReconciliationLog,
     BatchRunHistory,
+    User,
+    UserPermission,
 )
+from app.models.audit_log import AuditLog
 from app.utils.step_log_file import (
     make_on_step_log_callback,
     write_step_logs,
@@ -56,6 +60,47 @@ def _generate_batch_id(partner_code: str, service_code: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     short_uuid = str(uuid.uuid4())[:8]
     return f"{partner_code}_{service_code}_{timestamp}_{short_uuid}"
+
+
+def _check_reconcile_permission(db: Session, user: User, partner_code: str, service_code: str):
+    """Check if user has reconcile permission for the given partner/service.
+    Admin bypasses all checks. Raises HTTPException if not permitted."""
+    if user.is_admin:
+        return
+    permission = db.query(UserPermission).filter(
+        UserPermission.user_id == user.id,
+        UserPermission.partner_code == partner_code,
+        UserPermission.service_code == service_code,
+        UserPermission.can_reconcile == True
+    ).first()
+    if not permission:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Bạn không có quyền đối soát cho {partner_code}/{service_code}"
+        )
+
+
+def _write_audit(db, user_id, user_email, action: str,
+                 batch_id: str, old_status, new_status: str, summary: str):
+    """Write an audit log entry for batch status transitions.
+    Non-blocking: errors logged but don't fail the main action."""
+    try:
+        if not user_id:
+            logger.warning(f"Skipping audit log: no user_id for batch {batch_id}")
+            return
+        log = AuditLog(
+            user_id=user_id,
+            user_email=user_email or "unknown",
+            action=action,
+            entity_type="BATCH",
+            entity_id=batch_id,
+            old_values={"status": old_status} if old_status else None,
+            new_values={"status": new_status},
+            summary=summary,
+        )
+        db.add(log)
+    except Exception as e:
+        logger.error(f"Failed to write audit log: {e}")
 
 
 def _export_outputs_and_build_stats(
@@ -187,7 +232,8 @@ async def upload_files(
     config_id: int,
     files: List[UploadFile] = File(...),
     source_names: str = Form(...),  # Comma-separated: "B1,B4,B1,B3" (can repeat for multiple files per source)
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Upload files for reconciliation
@@ -202,10 +248,13 @@ async def upload_files(
     config = db.query(PartnerServiceConfig).filter(
         PartnerServiceConfig.id == config_id
     ).first()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
+    # Check reconcile permission
+    _check_reconcile_permission(db, current_user, config.partner_code, config.service_code)
+
     source_name_list = [s.strip().upper() for s in source_names.split(",")]
     
     if len(files) != len(source_name_list):
@@ -313,7 +362,8 @@ async def upload_files(
 @router.post("/check-duplicate")
 async def check_duplicate_batch(
     request: ReconciliationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Check if a duplicate batch exists for the same partner+service and overlapping period.
@@ -410,7 +460,8 @@ def _delete_batch_data(batch: ReconciliationLog, db: Session):
 @router.delete("/batches/{batch_id}")
 async def delete_batch(
     batch_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a batch and all its associated data (files, exports, DB record)"""
     batch = db.query(ReconciliationLog).filter(
@@ -419,10 +470,13 @@ async def delete_batch(
     
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    
+
+    # Check reconcile permission
+    _check_reconcile_permission(db, current_user, batch.partner_code, batch.service_code)
+
     if batch.status == "APPROVED":
         raise HTTPException(status_code=400, detail="Không thể xóa batch đã được phê duyệt")
-    
+
     _delete_batch_data(batch, db)
     db.commit()
     
@@ -432,7 +486,8 @@ async def delete_batch(
 @router.post("/{batch_id}/stop")
 async def stop_batch(
     batch_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Stop a running batch (PROCESSING status)"""
     batch = db.query(ReconciliationLog).filter(
@@ -441,11 +496,14 @@ async def stop_batch(
     
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    
+
+    # Check reconcile permission
+    _check_reconcile_permission(db, current_user, batch.partner_code, batch.service_code)
+
     if batch.status != "PROCESSING":
-        raise HTTPException(status_code=400, 
+        raise HTTPException(status_code=400,
                           detail=f"Chỉ có thể dừng batch ở trạng thái PROCESSING, batch hiện tại: {batch.status}")
-    
+
     # Mark batch for cancellation in WorkflowExecutor
     WorkflowExecutor.cancel_batch(batch_id)
     
@@ -453,9 +511,14 @@ async def stop_batch(
     batch.status = "CANCELLED"
     batch.error_message = "Batch was cancelled by user"
     batch.updated_at = datetime.utcnow()
-    
+
+    # Audit log: user stopped batch
+    _write_audit(db, current_user.id, current_user.email, "STOP",
+                 batch_id, "PROCESSING", "CANCELLED",
+                 f"Dừng đối soát batch {batch_id}")
+
     db.commit()
-    
+
     return {
         "message": f"Batch {batch_id} đã được dừng",
         "status": "CANCELLED"
@@ -474,10 +537,18 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
     Only the final status update touches the DB (once, at the end).
     """
     from app.core.database import DatabaseManager
-    from app.models import PartnerServiceConfig, ReconciliationLog, BatchRunHistory
-    
+    from app.models import PartnerServiceConfig, ReconciliationLog, BatchRunHistory, User
+
     SessionLocal = DatabaseManager.get_session_factory('app')
     bg_db = SessionLocal()
+
+    # Get batch creator info for audit logs
+    batch_record = bg_db.query(ReconciliationLog).filter(
+        ReconciliationLog.batch_id == batch_id
+    ).first()
+    creator = bg_db.query(User).filter(User.id == batch_record.created_by).first() if batch_record else None
+    audit_user_id = creator.id if creator else None
+    audit_user_email = creator.email if creator else "system"
     
     log_file_rel = get_log_file_path(batch_id, run_number)
     
@@ -520,7 +591,7 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
                 final_db.query(ReconciliationLog).filter(
                     ReconciliationLog.batch_id == batch_id
                 ).update({
-                    ReconciliationLog.status: "FAILED",
+                    ReconciliationLog.status: "ERROR",
                     ReconciliationLog.error_message: result.error_message or "Workflow execution failed",
                     ReconciliationLog.step_logs: log_file_rel,
                 })
@@ -529,12 +600,16 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
                     BatchRunHistory.batch_id == batch_id,
                     BatchRunHistory.run_number == run_number,
                 ).update({
-                    BatchRunHistory.status: "FAILED",
+                    BatchRunHistory.status: "ERROR",
                     BatchRunHistory.completed_at: datetime.utcnow(),
                     BatchRunHistory.duration_seconds: total_time,
                     BatchRunHistory.error_message: result.error_message,
                     BatchRunHistory.log_file_path: log_file_rel,
                 })
+                # Audit log: workflow failed
+                _write_audit(final_db, audit_user_id, audit_user_email, "STATUS_CHANGE",
+                             batch_id, "PROCESSING", "ERROR",
+                             f"Lỗi đối soát: {result.error_message or 'Unknown error'}")
                 final_db.commit()
                 logger.error(f"[workflow_bg] Workflow failed: {result.error_message}")
                 return
@@ -568,8 +643,12 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
                 BatchRunHistory.summary_stats: summary_json,
                 BatchRunHistory.file_results: file_results_json,
             })
+            # Audit log: workflow completed
+            _write_audit(final_db, audit_user_id, audit_user_email, "STATUS_CHANGE",
+                         batch_id, "PROCESSING", "COMPLETED",
+                         f"Hoàn tất đối soát ({total_time:.1f}s)")
             final_db.commit()
-            
+
             logger.info(f"[workflow_bg] Workflow completed in {total_time:.2f}s for {batch_id}")
         finally:
             final_db.close()
@@ -582,7 +661,7 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
             
             # Check if this was a user cancellation
             is_cancelled = "cancelled" in str(e).lower()
-            status = "CANCELLED" if is_cancelled else "FAILED"
+            status = "CANCELLED" if is_cancelled else "ERROR"
             
             err_db.query(ReconciliationLog).filter(
                 ReconciliationLog.batch_id == batch_id
@@ -600,6 +679,10 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
                 BatchRunHistory.error_message: str(e),
                 BatchRunHistory.log_file_path: log_file_rel,
             })
+            # Audit log: error/cancellation
+            summary = "Tạm dừng đối soát" if is_cancelled else f"Lỗi đối soát: {str(e)[:200]}"
+            _write_audit(err_db, audit_user_id, audit_user_email, "STATUS_CHANGE",
+                         batch_id, "PROCESSING", status, summary)
             err_db.commit()
             
             # Reset cancellation flag after handling
@@ -626,7 +709,8 @@ async def run_reconciliation(
     request: ReconciliationRequest,
     batch_folder: str = Query(..., description="Folder from upload-files"),
     force_replace: bool = Query(False, description="Force replace duplicate unapproved batches"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Run reconciliation process.
@@ -640,7 +724,10 @@ async def run_reconciliation(
     
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
+    # Check reconcile permission
+    _check_reconcile_permission(db, current_user, config.partner_code, config.service_code)
+
     # Check for duplicate batches (same partner+service + overlapping period)
     overlapping = db.query(ReconciliationLog).filter(
         ReconciliationLog.partner_code == config.partner_code,
@@ -749,7 +836,7 @@ async def run_reconciliation(
         period_from=request.period_from,
         period_to=request.period_to,
         status="PROCESSING",
-        created_by=1,
+        created_by=current_user.id,
         files_uploaded=json_lib.dumps(upload_info, ensure_ascii=False),
         step_logs="",  # Will be set to file path by background thread
     )
@@ -766,7 +853,12 @@ async def run_reconciliation(
     
     db.add(batch)
     db.add(run_history)
-    
+
+    # Audit log: batch created
+    _write_audit(db, current_user.id, current_user.email, "CREATE",
+                 batch_id, None, "PROCESSING",
+                 f"Tạo batch đối soát {config.partner_code}/{config.service_code}")
+
     # Retry commit in case of SQLite lock contention
     for attempt in range(3):
         try:
@@ -815,11 +907,48 @@ async def list_batches(
     partner_code: Optional[str] = None,
     service_code: Optional[str] = None,
     status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List reconciliation batches with filtering"""
-    query = db.query(ReconciliationLog)
-    
+    """List reconciliation batches with filtering.
+    - Admin: sees all batches
+    - User with approve permission: sees own batches + batches for permitted partner/service
+    - Regular user: sees only batches they created
+    """
+    logger.info(f"[list_batches] user={current_user.email} id={current_user.id} is_admin={current_user.is_admin}")
+
+    query = db.query(ReconciliationLog).options(
+        joinedload(ReconciliationLog.creator),
+        joinedload(ReconciliationLog.approver),
+    )
+
+    if not current_user.is_admin:
+        # Check if user has any approve permissions
+        approve_permissions = db.query(UserPermission).filter(
+            UserPermission.user_id == current_user.id,
+            UserPermission.can_approve == True
+        ).all()
+
+        if approve_permissions:
+            # Approver: sees own batches + batches they can approve
+            from sqlalchemy import or_, and_
+            approved_pairs = [
+                and_(
+                    ReconciliationLog.partner_code == p.partner_code,
+                    ReconciliationLog.service_code == p.service_code
+                )
+                for p in approve_permissions
+            ]
+            query = query.filter(
+                or_(
+                    ReconciliationLog.created_by == current_user.id,
+                    *approved_pairs
+                )
+            )
+        else:
+            # Regular user: only own batches
+            query = query.filter(ReconciliationLog.created_by == current_user.id)
+
     if partner_code:
         query = query.filter(ReconciliationLog.partner_code == partner_code)
     if service_code:
@@ -833,23 +962,28 @@ async def list_batches(
         .limit(page_size)\
         .all()
     
-    items = [
-        ReconciliationListItem(
-            batch_id=b.batch_id,
-            config_id=b.config_id,
-            partner_code=b.partner_code,
-            service_code=b.service_code,
-            period_from=b.period_from,
-            period_to=b.period_to,
-            status=ReconciliationStatus(b.status),
-            error_message=b.error_message,
-            created_by_name=b.creator.full_name if b.creator else "Unknown",
-            created_at=b.created_at,
-            approved_by_name=b.approver.full_name if b.approver else None,
-            approved_at=b.approved_at
+    items = []
+    for b in batches:
+        try:
+            batch_status = ReconciliationStatus(b.status)
+        except ValueError:
+            batch_status = b.status  # fallback raw string for unknown statuses
+        items.append(
+            ReconciliationListItem(
+                batch_id=b.batch_id,
+                config_id=b.config_id,
+                partner_code=b.partner_code,
+                service_code=b.service_code,
+                period_from=b.period_from,
+                period_to=b.period_to,
+                status=batch_status,
+                error_message=b.error_message,
+                created_by_name=b.creator.full_name if b.creator else "Unknown",
+                created_at=b.created_at,
+                approved_by_name=b.approver.full_name if b.approver else None,
+                approved_at=b.approved_at
+            )
         )
-        for b in batches
-    ]
     
     return ReconciliationList(
         items=items,
@@ -862,7 +996,8 @@ async def list_batches(
 @router.get("/batches/{batch_id}")
 async def get_batch_detail(
     batch_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get batch detail with results, including config data sources info"""
     batch = db.query(ReconciliationLog).filter(
@@ -883,7 +1018,22 @@ async def get_batch_detail(
     # Read step_logs from FILE (not DB JSON)
     # step_logs column now stores a file path like "logs/batches/.../run_1.json"
     # For backward compat, also handles legacy JSON array strings
-    step_logs = read_step_logs_from_path(batch.step_logs or "")
+    log_source = batch.step_logs or ""
+
+    # During PROCESSING, batch.step_logs may be empty but log file is being written
+    # Look up the log file path from the latest BatchRunHistory
+    if not log_source.strip() and batch.status == "PROCESSING":
+        latest_run = db.query(BatchRunHistory).filter(
+            BatchRunHistory.batch_id == batch_id
+        ).order_by(BatchRunHistory.run_number.desc()).first()
+        if latest_run and latest_run.log_file_path:
+            log_source = latest_run.log_file_path
+        else:
+            # Fallback: try to read from default run_1 path
+            from app.utils.step_log_file import get_log_file_path as _get_log_path
+            log_source = _get_log_path(batch_id, 1)
+
+    step_logs = read_step_logs_from_path(log_source)
     
     summary_stats = {}
     if batch.summary_stats:
@@ -973,6 +1123,7 @@ async def get_run_logs(
     batch_id: str,
     run_number: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get step logs for a specific run of a batch."""
     run = db.query(BatchRunHistory).filter(
@@ -1001,7 +1152,8 @@ async def get_run_logs(
 @router.post("/batches/{batch_id}/rerun")
 async def rerun_batch(
     batch_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Re-run reconciliation for a failed/errored batch using existing uploaded files.
@@ -1014,15 +1166,17 @@ async def rerun_batch(
     
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    
-    if batch.is_locked:
-        raise HTTPException(status_code=400, detail="Batch đã bị khóa, không thể chạy lại")
-    
-    if batch.status == "APPROVED":
-        raise HTTPException(status_code=400, detail="Batch đã được phê duyệt, không thể chạy lại")
-    
-    if batch.status == "PROCESSING":
-        raise HTTPException(status_code=400, detail="Batch đang được xử lý, vui lòng đợi")
+
+    # Check reconcile permission
+    _check_reconcile_permission(db, current_user, batch.partner_code, batch.service_code)
+
+    # Only allow rerun from: COMPLETED, ERROR, CANCELLED
+    allowed = ['COMPLETED', 'ERROR', 'CANCELLED', 'UPLOADING']
+    if batch.status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Không thể chạy lại batch ở trạng thái {batch.status}"
+        )
     
     # Get config
     config = db.query(PartnerServiceConfig).filter(
@@ -1091,10 +1245,17 @@ async def rerun_batch(
     )
     
     # Update status to PROCESSING immediately
+    old_status = batch.status
     batch.status = "PROCESSING"
     batch.error_message = None
     batch.step_logs = ""  # Will be set to file path by background thread
     db.add(run_history)
+
+    # Audit log: user rerun batch
+    _write_audit(db, current_user.id, current_user.email, "RERUN",
+                 batch_id, old_status, "PROCESSING",
+                 f"Chạy lại đối soát batch {batch_id} (lần {next_run})")
+
     db.commit()
     
     # Launch workflow execution in a background thread

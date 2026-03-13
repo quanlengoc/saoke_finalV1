@@ -8,10 +8,26 @@ const statusColors = {
   'UPLOADING': 'bg-gray-100 text-gray-800',
   'PROCESSING': 'bg-yellow-100 text-yellow-800',
   'COMPLETED': 'bg-green-100 text-green-800',
+  'ERROR': 'bg-red-100 text-red-800',
+  'CANCELLED': 'bg-orange-100 text-orange-800',
+  'PENDING_APPROVAL': 'bg-purple-100 text-purple-800',
   'APPROVED': 'bg-blue-100 text-blue-800',
   'REJECTED': 'bg-red-100 text-red-800',
-  'ERROR': 'bg-red-100 text-red-800',
   'FAILED': 'bg-red-100 text-red-800',
+  'PENDING': 'bg-yellow-100 text-yellow-800',
+}
+
+const statusLabels = {
+  'UPLOADING': 'Khởi tạo',
+  'PROCESSING': 'Đang xử lý',
+  'COMPLETED': 'Hoàn tất',
+  'ERROR': 'Lỗi',
+  'CANCELLED': 'Tạm dừng',
+  'PENDING_APPROVAL': 'Chờ phê duyệt',
+  'APPROVED': 'Đã phê duyệt',
+  'REJECTED': 'Từ chối (cũ)',
+  'FAILED': 'Thất bại (cũ)',
+  'PENDING': 'Chờ xử lý (cũ)',
 }
 
 export default function BatchListPage() {
@@ -102,12 +118,13 @@ export default function BatchListPage() {
             className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           >
             <option value="">Tất cả trạng thái</option>
+            <option value="UPLOADING">Khởi tạo</option>
             <option value="PROCESSING">Đang xử lý</option>
-            <option value="COMPLETED">Hoàn thành</option>
-            <option value="APPROVED">Đã duyệt</option>
-            <option value="REJECTED">Từ chối</option>
-            <option value="FAILED">Thất bại</option>
+            <option value="COMPLETED">Hoàn tất</option>
             <option value="ERROR">Lỗi</option>
+            <option value="CANCELLED">Tạm dừng</option>
+            <option value="PENDING_APPROVAL">Chờ phê duyệt</option>
+            <option value="APPROVED">Đã phê duyệt</option>
           </select>
           
           <input
@@ -148,7 +165,7 @@ export default function BatchListPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Batch ID</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Đối tác / Dịch vụ</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kỳ đối soát</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cấu hình</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Người tạo</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thời gian</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
@@ -185,22 +202,12 @@ export default function BatchListPage() {
                   <td className="px-6 py-4 text-gray-600">
                     {batch.period_from} - {batch.period_to}
                   </td>
-                  <td className="px-6 py-4">
-                    {batch.config_id ? (
-                      <Link
-                        to={`/admin/configs?edit=${batch.config_id}`}
-                        className="text-blue-600 hover:underline text-sm"
-                        title={`Config #${batch.config_id}`}
-                      >
-                        #{batch.config_id}
-                      </Link>
-                    ) : (
-                      <span className="text-gray-400 text-sm">-</span>
-                    )}
+                  <td className="px-6 py-4 text-sm text-gray-700">
+                    {batch.created_by_name || '-'}
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[batch.status]}`}>
-                      {batch.status}
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[batch.status] || 'bg-gray-100 text-gray-800'}`}>
+                      {statusLabels[batch.status] || batch.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
@@ -208,13 +215,13 @@ export default function BatchListPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      {['ERROR', 'FAILED', 'UPLOADING'].includes(batch.status) && (
+                      {['ERROR', 'CANCELLED', 'UPLOADING', 'COMPLETED'].includes(batch.status) && (
                         <button
                           onClick={() => rerunMutation.mutate(batch.batch_id)}
                           disabled={rerunMutation.isPending}
                           className="px-3 py-1 bg-orange-500 text-white rounded text-xs hover:bg-orange-600 transition disabled:opacity-50"
                         >
-                          🔄 Chạy lại
+                          Chạy lại
                         </button>
                       )}
                       <Link

@@ -272,7 +272,7 @@ class WorkflowExecutor:
                     self._log_step(f"load_{ds.source_name}", "warning", 
                                    f"Optional source {ds.source_name} failed: {result.error_message}")
             else:
-                self.datasets[ds.source_name.upper()] = result.data
+                self.datasets[ds.source_name.upper()] = result.data if result.data is not None else pd.DataFrame()
                 # Build data preview (first 10 rows) showing only configured columns
                 if result.data is not None:
                     preview = self._build_data_preview(
@@ -431,7 +431,8 @@ class WorkflowExecutor:
     
     def _get_dataset(self, source_name: str) -> pd.DataFrame:
         """Get dataset by name (from loaded data or intermediate results)"""
-        return self.datasets.get(source_name.upper(), pd.DataFrame())
+        df = self.datasets.get(source_name.upper())
+        return df if df is not None else pd.DataFrame()
     
     def _build_outputs(self):
         """Build final outputs.

@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import OutputConfig, PartnerServiceConfig
+from app.api.deps import get_current_user, get_current_admin
+from app.models import OutputConfig, PartnerServiceConfig, User
 from app.schemas.v2.output import (
     OutputConfigCreate,
     OutputConfigUpdate,
@@ -22,7 +23,8 @@ router = APIRouter()
 @router.get("/by-config/{config_id}", response_model=List[OutputConfigResponse])
 async def list_output_configs(
     config_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """List all output configs for a config"""
     outputs = db.query(OutputConfig).filter(
@@ -35,7 +37,8 @@ async def list_output_configs(
 @router.get("/{output_id}", response_model=OutputConfigResponse)
 async def get_output_config(
     output_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """Get output config by ID"""
     output = db.query(OutputConfig).filter(OutputConfig.id == output_id).first()
@@ -49,7 +52,8 @@ async def get_output_config(
 @router.post("/", response_model=OutputConfigResponse)
 async def create_output_config(
     data: OutputConfigCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Create a new output config"""
     # Verify config exists
@@ -99,7 +103,8 @@ async def create_output_config(
 async def update_output_config(
     output_id: int,
     data: OutputConfigUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Update output config by ID"""
     output = db.query(OutputConfig).filter(OutputConfig.id == output_id).first()
@@ -133,7 +138,8 @@ async def update_output_config(
 @router.delete("/{output_id}")
 async def delete_output_config(
     output_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Delete output config by ID"""
     output = db.query(OutputConfig).filter(OutputConfig.id == output_id).first()

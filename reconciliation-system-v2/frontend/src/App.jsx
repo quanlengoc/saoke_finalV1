@@ -39,14 +39,22 @@ function ProtectedRoute({ children, adminOnly = false }) {
 
 function App() {
   const token = useAuthStore((state) => state.token)
-  
+  const fetchUser = useAuthStore((state) => state.fetchUser)
+
   // Sync token to axios when it changes
   useEffect(() => {
     setAuthToken(token)
   }, [token])
+
+  // Refresh user data (including permissions) from server on app load
+  useEffect(() => {
+    if (token) {
+      fetchUser().catch(() => {})
+    }
+  }, [])
   
   return (
-    <Routes basename="/Sokhop">
+    <Routes>
       {/* Auth routes */}
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />

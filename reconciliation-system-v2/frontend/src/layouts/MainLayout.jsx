@@ -1,27 +1,49 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: '📊' },
-  { name: 'Đối soát V1', href: '/reconciliation', icon: '📤' },
-  { name: 'Đối soát V2', href: '/reconciliation-v2', icon: '🚀' },
-  { name: 'Danh sách batch', href: '/batches', icon: '📋' },
-  { name: 'Phê duyệt', href: '/approvals', icon: '✅' },
-]
+const getNavigation = (user) => {
+  if (!user) return [{ name: 'Dashboard', href: '/', icon: '📊' }]
+
+  const permissions = user.permissions || []
+  const isAdmin = user.is_admin
+  const hasReconcile = isAdmin || permissions.some(p => p.can_reconcile)
+  const hasApprove = isAdmin || permissions.some(p => p.can_approve)
+
+  const items = [
+    { name: 'Dashboard', href: '/', icon: '📊' },
+  ]
+
+  if (hasReconcile) {
+    items.push({ name: 'Đối soát', href: '/reconciliation-v2', icon: '🚀' })
+  }
+
+  items.push({ name: 'Danh sách batch', href: '/batches', icon: '📋' })
+
+  if (hasApprove) {
+    items.push({ name: 'Phê duyệt', href: '/approvals', icon: '✅' })
+  }
+
+  return items
+}
 
 const adminNavigation = [
   { name: 'Quản lý Users', href: '/admin/users', icon: '👥' },
-  { name: 'Cấu hình V1', href: '/admin/configs', icon: '⚙️' },
+  //{ name: 'Cấu hình V1', href: '/admin/configs', icon: '⚙️' },
   { name: 'Cấu hình V2', href: '/admin/configs-v2', icon: '🔧' },
-  { name: 'Mock Data', href: '/admin/mock-data', icon: '📂' },
+  //{ name: 'Mock Data', href: '/admin/mock-data', icon: '📂' },
 ]
 
 export default function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const { user, logout } = useAuthStore()
+  const { user, logout, fetchUser } = useAuthStore()
   const location = useLocation()
   const navigate = useNavigate()
+
+  // Refresh user permissions from server on first mount
+  useEffect(() => {
+    fetchUser().catch(() => {})
+  }, [])
   
   const handleLogout = () => {
     logout()
@@ -40,7 +62,7 @@ export default function MainLayout() {
           
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            {navigation.map((item) => (
+            {getNavigation(user).map((item) => (
               <Link
                 key={item.href}
                 to={item.href}

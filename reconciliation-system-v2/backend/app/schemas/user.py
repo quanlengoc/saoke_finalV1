@@ -65,8 +65,8 @@ class PermissionBase(BaseModel):
 
 
 class PermissionCreate(PermissionBase):
-    """Schema for creating a permission"""
-    user_id: int
+    """Schema for creating a permission (user_id comes from URL path)"""
+    pass
 
 
 class PermissionUpdate(BaseModel):
@@ -91,7 +91,6 @@ class PermissionResponse(PermissionBase):
 
 class UserPermissionsBulkUpdate(BaseModel):
     """Schema for bulk updating user permissions"""
-    user_id: int
     permissions: List[PermissionBase]
 
 

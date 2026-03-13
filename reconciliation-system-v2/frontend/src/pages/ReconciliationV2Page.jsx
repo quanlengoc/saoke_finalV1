@@ -13,6 +13,7 @@ import {
   DocumentArrowUpIcon
 } from '@heroicons/react/24/outline'
 import { configsApiV2, dataSourcesApiV2, reconciliationApiV2 } from '../services/api'
+import { useAuthStore } from '../stores/authStore'
 
 // Supported file extensions
 const ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.xlsb', '.csv', '.zip']
@@ -47,7 +48,8 @@ function isValidFile(filename) {
 
 export default function ReconciliationV2Page() {
   const navigate = useNavigate()
-  
+  const { user } = useAuthStore()
+
   // State
   const [step, setStep] = useState(1) // 1: Select config, 2: Upload files, 3: Run & Review
   const [configs, setConfigs] = useState([])
@@ -68,10 +70,10 @@ export default function ReconciliationV2Page() {
   const [duplicateWarning, setDuplicateWarning] = useState(null) // { duplicates, message }
   const [needForceReplace, setNeedForceReplace] = useState(false) // true if user confirmed replace at step 2
 
-  // Load configs
+  // Load configs (re-run when user permissions change)
   useEffect(() => {
     loadConfigs()
-  }, [])
+  }, [user])
 
   // Load data sources when config selected
   useEffect(() => {
@@ -84,7 +86,20 @@ export default function ReconciliationV2Page() {
     try {
       setLoading(true)
       const response = await configsApiV2.list({ page: 1, page_size: 100 })
-      setConfigs(response.data.items.filter(c => c.is_active))
+      let activeConfigs = response.data.items.filter(c => c.is_active)
+
+      // Filter configs by user's can_reconcile permission (admin sees all)
+      if (!user?.is_admin) {
+        const permissions = user?.permissions || []
+        const allowedPairs = permissions
+          .filter(p => p.can_reconcile)
+          .map(p => `${p.partner_code}_${p.service_code}`)
+        activeConfigs = activeConfigs.filter(c =>
+          allowedPairs.includes(`${c.partner_code}_${c.service_code}`)
+        )
+      }
+
+      setConfigs(activeConfigs)
     } catch (err) {
       setError(err.response?.data?.detail || 'Không thể tải danh sách cấu hình')
     } finally {

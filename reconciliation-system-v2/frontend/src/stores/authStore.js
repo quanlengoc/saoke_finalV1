@@ -4,7 +4,7 @@ import axios from 'axios'
 
 // Direct API calls without using the shared api instance to avoid circular deps
 const authAxios = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/api/v2',
   headers: { 'Content-Type': 'application/json' },
 })
 

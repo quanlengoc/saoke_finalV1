@@ -7,7 +7,7 @@ from typing import Generator, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import DatabaseManager
 from app.core.security import decode_access_token
@@ -56,7 +56,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    user = db.query(User).options(joinedload(User.permissions)).filter(User.id == int(user_id)).first()
     
     if user is None:
         print(f"[DEBUG] User not found for id: {user_id}")

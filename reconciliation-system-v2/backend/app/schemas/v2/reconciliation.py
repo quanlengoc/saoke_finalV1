@@ -11,15 +11,17 @@ from enum import Enum
 
 class ReconciliationStatus(str, Enum):
     """Status of reconciliation batch"""
-    PENDING = "PENDING"
-    UPLOADING = "UPLOADING"
-    PROCESSING = "PROCESSING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    ERROR = "ERROR"
-    CANCELLED = "CANCELLED"
-    APPROVED = "APPROVED"
+    UPLOADING = "UPLOADING"                 # Khởi tạo
+    PROCESSING = "PROCESSING"               # Đang xử lý
+    COMPLETED = "COMPLETED"                 # Hoàn tất thành công
+    ERROR = "ERROR"                         # Hoàn tất thất bại
+    CANCELLED = "CANCELLED"                 # Tạm dừng
+    PENDING_APPROVAL = "PENDING_APPROVAL"   # Chờ phê duyệt
+    APPROVED = "APPROVED"                   # Đã phê duyệt
+    # Legacy statuses (backward compat for old DB data)
     REJECTED = "REJECTED"
+    FAILED = "FAILED"
+    PENDING = "PENDING"
 
 
 class ReconciliationRequest(BaseModel):

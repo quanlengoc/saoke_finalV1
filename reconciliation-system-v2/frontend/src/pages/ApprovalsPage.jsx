@@ -85,20 +85,16 @@ export default function ApprovalsPage() {
                       >
                         {batch.batch_id}
                       </Link>
-                      {batch.is_locked && (
-                        <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-800">
-                          🔒 Đã gửi
-                        </span>
-                      )}
+                      <span className="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800">
+                        Chờ phê duyệt
+                      </span>
                     </div>
                     <p className="text-sm text-gray-500 mt-1">
-                      {batch.partner_code} / {batch.service_code} • {batch.reconcile_date}
+                      {batch.partner_code} / {batch.service_code} • Kỳ: {batch.period_from} - {batch.period_to}
                     </p>
-                    {batch.stats && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        A1: {batch.stats.total_a1} | A2: {batch.stats.total_a2}
-                      </p>
-                    )}
+                    <p className="text-xs text-gray-400 mt-1">
+                      Người tạo: {batch.created_by_name}
+                    </p>
                   </div>
                   
                   <div className="flex gap-2">

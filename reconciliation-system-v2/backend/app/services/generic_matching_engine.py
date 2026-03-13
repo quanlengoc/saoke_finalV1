@@ -403,20 +403,34 @@ class GenericMatchingEngine:
         """
         import time
         start_time = time.time()
-        
-        # Build key columns WITHOUT copying the full DataFrames
-        # We only need the key column + index for the merge
-        left_config = key_match.get('left', {})
-        right_config = key_match.get('right', {})
-        
-        left_keys = pd.DataFrame({
-            '_left_idx': left_df.index,
-            '_match_key': self._build_structured_key_column(left_df, left_config, left_name),
-        })
-        right_keys = pd.DataFrame({
-            '_right_idx': right_df.index,
-            '_match_key': self._build_structured_key_column(right_df, right_config, right_name),
-        })
+
+        # Check if key_match uses expression (advanced mode) or structured config (simple mode)
+        key_expression = key_match.get('expression')
+        if key_expression:
+            logger.info(f"Advanced mode: eval key expression: {key_expression}")
+            left_key_series, right_key_series = self._eval_key_expression(
+                left_df, right_df, key_expression, left_name, right_name
+            )
+            left_keys = pd.DataFrame({
+                '_left_idx': left_df.index,
+                '_match_key': left_key_series,
+            })
+            right_keys = pd.DataFrame({
+                '_right_idx': right_df.index,
+                '_match_key': right_key_series,
+            })
+        else:
+            # Structured config (simple mode)
+            left_config = key_match.get('left', {})
+            right_config = key_match.get('right', {})
+            left_keys = pd.DataFrame({
+                '_left_idx': left_df.index,
+                '_match_key': self._build_structured_key_column(left_df, left_config, left_name),
+            })
+            right_keys = pd.DataFrame({
+                '_right_idx': right_df.index,
+                '_match_key': self._build_structured_key_column(right_df, right_config, right_name),
+            })
         
         left_unique = left_keys['_match_key'].nunique()
         right_unique = right_keys['_match_key'].nunique()
@@ -559,7 +573,145 @@ class GenericMatchingEngine:
             key_col = key_col.str.strip()
         
         return key_col
-    
+
+    def _eval_key_expression(
+        self,
+        left_df: pd.DataFrame,
+        right_df: pd.DataFrame,
+        expression: str,
+        left_name: str,
+        right_name: str
+    ) -> tuple:
+        """
+        Eval advanced mode key expression to produce left/right key Series.
+
+        Expression format: LEFT['col'].transforms... == RIGHT['col'].transforms...
+        Splits by '==' and evals each side separately.
+        """
+        import re
+
+        # Split expression by '==' (outside of strings)
+        # Simple approach: split by ' == ' first, fallback to '=='
+        parts = expression.split(' == ', 1)
+        if len(parts) != 2:
+            parts = expression.split('==', 1)
+
+        if len(parts) != 2:
+            raise ValueError(f"Key expression must contain '==': {expression}")
+
+        left_expr_str = parts[0].strip()
+        right_expr_str = parts[1].strip()
+
+        # Replace LEFT/RIGHT with actual DataFrame references
+        # Support both LEFT/RIGHT and left_name/right_name as variable names
+        left_key = self._eval_single_side_expression(left_df, left_expr_str, 'LEFT')
+        right_key = self._eval_single_side_expression(right_df, right_expr_str, 'RIGHT')
+
+        # Ensure both are string Series for merge
+        left_key = left_key.astype(str).fillna('')
+        right_key = right_key.astype(str).fillna('')
+
+        logger.info(f"Expression eval: left samples={left_key.head(3).tolist()}, right samples={right_key.head(3).tolist()}")
+
+        return left_key, right_key
+
+    def _eval_single_side_expression(
+        self,
+        df: pd.DataFrame,
+        expr_str: str,
+        var_name: str
+    ) -> pd.Series:
+        """
+        Eval one side of an expression (e.g. LEFT['Mô tả'].str.extract(...))
+        by substituting var_name with the actual DataFrame.
+        """
+        local_vars = {var_name: df}
+
+        try:
+            result = eval(expr_str, local_vars)
+        except Exception as e:
+            logger.error(f"Failed to eval expression side '{expr_str}': {e}")
+            raise ValueError(f"Expression eval failed: {expr_str} — {e}")
+
+        # str.extract returns DataFrame → take first column
+        if isinstance(result, pd.DataFrame):
+            result = result.iloc[:, 0]
+
+        if not isinstance(result, pd.Series):
+            raise ValueError(f"Expression must produce a Series, got {type(result)}: {expr_str}")
+
+        return result
+
+    def _apply_amount_check_by_expression(
+        self,
+        results: pd.DataFrame,
+        left_df: pd.DataFrame,
+        right_df: pd.DataFrame,
+        expression: str,
+        tolerance: float,
+        left_name: str,
+        right_name: str,
+        status_logic: Dict[str, Any]
+    ) -> pd.DataFrame:
+        """
+        Apply amount check using advanced mode expression.
+
+        Expression format: normalize_number(LEFT['Ghi có']) == normalize_number(RIGHT['Số tiền'])
+        or: LEFT['amount'].astype(float) == RIGHT['total'].astype(float)
+        """
+        logger.info(f"Advanced mode: eval amount expression: {expression}")
+
+        matched_mask = results[f'{right_name}_index'].notna()
+        results['amount_diff'] = None
+
+        if not matched_mask.any():
+            return results
+
+        try:
+            # Split expression
+            parts = expression.split(' == ', 1)
+            if len(parts) != 2:
+                parts = expression.split('==', 1)
+
+            if len(parts) != 2:
+                logger.warning(f"Amount expression has no '==', skipping: {expression}")
+                results['amount_diff'] = 0
+                return results
+
+            left_expr_str = parts[0].strip()
+            right_expr_str = parts[1].strip()
+
+            # Get matched row indices
+            left_indices = results.loc[matched_mask, f'{left_name}_index'].astype(int).values
+            right_indices = results.loc[matched_mask, f'{right_name}_index'].astype(int).values
+
+            # Eval each side on matched rows only
+            left_matched = left_df.loc[left_indices].reset_index(drop=True)
+            right_matched = right_df.loc[right_indices].reset_index(drop=True)
+
+            left_amounts = self._eval_single_side_expression(left_matched, left_expr_str, 'LEFT')
+            right_amounts = self._eval_single_side_expression(right_matched, right_expr_str, 'RIGHT')
+
+            left_amounts = pd.to_numeric(left_amounts, errors='coerce').fillna(0).values
+            right_amounts = pd.to_numeric(right_amounts, errors='coerce').fillna(0).values
+
+            diff = np.abs(left_amounts - right_amounts)
+            results.loc[matched_mask, 'amount_diff'] = diff
+
+            mismatch_mask = matched_mask & (results['amount_diff'] > tolerance)
+            mismatch_status = status_logic.get('key_match_amount_mismatch',
+                                status_logic.get('amount_mismatch', 'MISMATCH'))
+            results.loc[mismatch_mask, 'status'] = mismatch_status
+            results.loc[mismatch_mask, 'note'] = 'Sai lệch số tiền'
+
+        except Exception as e:
+            logger.error(f"Amount expression eval failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            results['amount_diff'] = 0
+
+        return results
+
     def _apply_structured_amount_check(
         self,
         results: pd.DataFrame,
@@ -581,10 +733,19 @@ class GenericMatchingEngine:
             "right": {"numberTransform": {...}}
         }
         """
+        # Check for advanced mode expression
+        amount_expression = amount_match.get('expression')
+        if amount_expression:
+            return self._apply_amount_check_by_expression(
+                results, left_df, right_df, amount_expression,
+                amount_match.get('tolerance', 0.01),
+                left_name, right_name, status_logic
+            )
+
         left_col = amount_match.get('left_column')
         right_col = amount_match.get('right_column')
         tolerance = amount_match.get('tolerance', 0.01)
-        
+
         if not left_col or not right_col:
             results['amount_diff'] = 0
             return results

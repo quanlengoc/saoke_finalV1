@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import WorkflowStep, PartnerServiceConfig
+from app.api.deps import get_current_user, get_current_admin
+from app.models import WorkflowStep, PartnerServiceConfig, User
 from app.schemas.v2.workflow import (
     WorkflowStepCreate,
     WorkflowStepUpdate,
@@ -22,7 +23,8 @@ router = APIRouter()
 @router.get("/by-config/{config_id}", response_model=List[WorkflowStepResponse])
 async def list_workflow_steps(
     config_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """List all workflow steps for a config in order"""
     steps = db.query(WorkflowStep).filter(
@@ -35,7 +37,8 @@ async def list_workflow_steps(
 @router.get("/{step_id}", response_model=WorkflowStepResponse)
 async def get_workflow_step(
     step_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """Get workflow step by ID"""
     step = db.query(WorkflowStep).filter(WorkflowStep.id == step_id).first()
@@ -49,7 +52,8 @@ async def get_workflow_step(
 @router.post("/", response_model=WorkflowStepResponse)
 async def create_workflow_step(
     data: WorkflowStepCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Create a new workflow step"""
     # Verify config exists
@@ -122,7 +126,8 @@ async def create_workflow_step(
 async def update_workflow_step(
     step_id: int,
     data: WorkflowStepUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Update workflow step by ID"""
     step = db.query(WorkflowStep).filter(WorkflowStep.id == step_id).first()
@@ -154,7 +159,8 @@ async def update_workflow_step(
 @router.delete("/{step_id}")
 async def delete_workflow_step(
     step_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Delete workflow step by ID"""
     step = db.query(WorkflowStep).filter(WorkflowStep.id == step_id).first()
@@ -172,7 +178,8 @@ async def delete_workflow_step(
 async def reorder_steps(
     config_id: int,
     step_orders: List[dict],  # [{"step_id": 1, "step_order": 1}, ...]
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
 ):
     """Reorder workflow steps for a config"""
     for item in step_orders:

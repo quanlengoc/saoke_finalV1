@@ -22,13 +22,16 @@ class WorkflowService:
     """
     
     # Valid status transitions
+    # Flow: UPLOADING → PROCESSING → COMPLETED/ERROR/CANCELLED → PENDING_APPROVAL → APPROVED
+    # Reject: PENDING_APPROVAL → COMPLETED (back to completed, user can rerun or resubmit)
     VALID_TRANSITIONS = {
-        'UPLOADING': ['PROCESSING', 'ERROR'],
-        'PROCESSING': ['COMPLETED', 'ERROR', 'CANCELLED'],  # Can be cancelled during processing
-        'COMPLETED': ['APPROVED', 'UPLOADING'],  # Can approve or reset
-        'APPROVED': ['UPLOADING'],  # Admin can reopen (reset)
-        'ERROR': ['UPLOADING'],  # Can retry
-        'CANCELLED': ['UPLOADING'],  # Can retry after cancellation
+        'UPLOADING': ['PROCESSING'],
+        'PROCESSING': ['COMPLETED', 'ERROR', 'CANCELLED'],
+        'COMPLETED': ['PROCESSING', 'PENDING_APPROVAL'],       # rerun or submit for approval
+        'ERROR': ['PROCESSING', 'UPLOADING'],                   # rerun or re-upload
+        'CANCELLED': ['PROCESSING', 'UPLOADING'],               # rerun or re-upload
+        'PENDING_APPROVAL': ['APPROVED', 'COMPLETED'],          # approve or reject (→COMPLETED)
+        'APPROVED': [],                                          # final state
     }
     
     def __init__(self, db: Session):
@@ -217,10 +220,116 @@ class WorkflowService:
         batch.updated_at = datetime.utcnow()
         self.db.commit()
     
+    def lock_batch(
+        self,
+        batch_id: str,
+        user_id: int
+    ) -> ReconciliationLog:
+        """
+        Lock a batch (submit for approval) by changing status to PENDING_APPROVAL
+
+        Args:
+            batch_id: Batch ID (can be int id or string batch_id)
+            user_id: User ID who submitted
+
+        Returns:
+            Locked batch
+
+        Raises:
+            WorkflowError: If batch not found or already locked
+        """
+        batch = self.db.query(ReconciliationLog).filter(
+            ReconciliationLog.id == batch_id
+        ).first() if isinstance(batch_id, int) else self.get_batch(batch_id)
+
+        if not batch:
+            raise WorkflowError(f"Batch not found: {batch_id}")
+
+        if batch.status not in ('COMPLETED',):
+            raise WorkflowError(f"Can only lock COMPLETED batches, current: {batch.status}")
+
+        batch.status = 'PENDING_APPROVAL'
+        batch.updated_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(batch)
+
+        return batch
+
+    def unlock_batch(
+        self,
+        batch_id: str,
+        user_id: int
+    ) -> ReconciliationLog:
+        """
+        Unlock a batch (allow rerun/edit) by reverting status to COMPLETED
+
+        Args:
+            batch_id: Batch ID (can be int id or string batch_id)
+            user_id: User ID who unlocked
+
+        Returns:
+            Unlocked batch
+        """
+        batch = self.db.query(ReconciliationLog).filter(
+            ReconciliationLog.id == batch_id
+        ).first() if isinstance(batch_id, int) else self.get_batch(batch_id)
+
+        if not batch:
+            raise WorkflowError(f"Batch not found: {batch_id}")
+
+        batch.status = 'COMPLETED'
+        batch.updated_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(batch)
+
+        return batch
+
+    def reject_batch(
+        self,
+        batch_id: str,
+        user_id: int,
+        reason: Optional[str] = None
+    ) -> ReconciliationLog:
+        """
+        Reject a batch — returns it to COMPLETED so user can rerun or resubmit.
+
+        Args:
+            batch_id: Batch ID (can be int id or string batch_id)
+            user_id: User ID who rejected
+            reason: Rejection reason
+
+        Returns:
+            Batch with COMPLETED status
+        """
+        batch = self.db.query(ReconciliationLog).filter(
+            ReconciliationLog.id == batch_id
+        ).first() if isinstance(batch_id, int) else self.get_batch(batch_id)
+
+        if not batch:
+            raise WorkflowError(f"Batch not found: {batch_id}")
+
+        if batch.status != 'PENDING_APPROVAL':
+            raise WorkflowError(f"Can only reject PENDING_APPROVAL batches, current: {batch.status}")
+
+        batch.status = 'COMPLETED'
+        batch.error_message = reason
+        batch.approved_by = None
+        batch.approved_at = None
+        batch.updated_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(batch)
+
+        return batch
+
     def approve_batch(
         self,
         batch_id: str,
-        approved_by: int
+        approved_by: int = None,
+        user_id: int = None,
+        notes: Optional[str] = None
     ) -> ReconciliationLog:
         """
         Approve a completed batch
@@ -235,17 +344,23 @@ class WorkflowService:
         Raises:
             WorkflowError: If batch cannot be approved
         """
-        batch = self.get_batch(batch_id)
+        batch = self.db.query(ReconciliationLog).filter(
+            ReconciliationLog.id == batch_id
+        ).first() if isinstance(batch_id, int) else self.get_batch(batch_id)
+
         if not batch:
             raise WorkflowError(f"Batch not found: {batch_id}")
-        
-        if batch.status != 'COMPLETED':
+
+        if batch.status != 'PENDING_APPROVAL':
             raise WorkflowError(
-                f"Can only approve COMPLETED batches, current status: {batch.status}"
+                f"Can only approve PENDING_APPROVAL batches, current status: {batch.status}"
             )
-        
+
+        # Support both parameter names
+        approver_id = approved_by or user_id
+
         batch.status = 'APPROVED'
-        batch.approved_by = approved_by
+        batch.approved_by = approver_id
         batch.approved_at = datetime.utcnow()
         batch.updated_at = datetime.utcnow()
         

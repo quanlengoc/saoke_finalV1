@@ -1,13 +1,17 @@
 import axios from 'axios'
 
+// ============================================================================
+// Single API instance - V2 only
+// ============================================================================
+
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/api/v2',
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
-// Helper function to get token from localStorage (avoid circular import)
+// Helper function to get token from localStorage
 const getToken = () => {
   try {
     const authStorage = localStorage.getItem('auth-storage')
@@ -36,30 +40,25 @@ if (initToken) {
   setAuthToken(initToken)
 }
 
-// Request interceptor - add auth token (backup method)
+// Request interceptor - add auth token
 api.interceptors.request.use(
   (config) => {
-    // Check if Authorization header is already set
     if (!config.headers.Authorization) {
       const token = getToken()
-      console.log('[API Interceptor] Token from localStorage:', token ? 'exists' : 'null')
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }
     }
-    console.log('[API Request]', config.method?.toUpperCase(), config.url, 'Auth:', config.headers.Authorization ? 'Yes' : 'No')
     return config
   },
   (error) => Promise.reject(error)
 )
 
-// Response interceptor - handle 401/403
+// Response interceptor - handle 401
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const status = error.response?.status
-    if (status === 401) {
-      // Clear auth storage and redirect to login
+    if (error.response?.status === 401) {
       localStorage.removeItem('auth-storage')
       setAuthToken(null)
       window.location.href = '/login'
@@ -68,30 +67,57 @@ api.interceptors.response.use(
   }
 )
 
+// ============================================================================
 // Auth API
+// ============================================================================
+
 export const authApi = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   getMe: () => api.get('/auth/me'),
-  changePassword: (currentPassword, newPassword) => 
+  changePassword: (currentPassword, newPassword) =>
     api.post('/auth/change-password', { current_password: currentPassword, new_password: newPassword }),
 }
 
+// ============================================================================
 // Partners API
+// ============================================================================
+
 export const partnersApi = {
   list: () => api.get('/partners'),
   getPartners: () => api.get('/partners/partners'),
   getServices: (partnerCode) => api.get(`/partners/services/${partnerCode}`),
-  getConfig: (partnerCode, serviceCode, date) => 
+  getConfig: (partnerCode, serviceCode, date) =>
     api.get(`/partners/config/${partnerCode}/${serviceCode}`, { params: { target_date: date } }),
 }
 
+// ============================================================================
 // Reconciliation API
+// ============================================================================
+
 export const reconciliationApi = {
-  upload: (formData) => api.post('/reconciliation/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  uploadFiles: (configId, files, sourceNames, onProgress) => {
+    const formData = new FormData()
+    files.forEach(file => formData.append('files', file))
+    formData.append('source_names', sourceNames.join(','))
+    return api.post(`/reconciliation/upload-files/${configId}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          onProgress(percent)
+        }
+      }
+    })
+  },
+  run: (requestData, batchFolder, forceReplace = false) =>
+    api.post('/reconciliation/run', requestData, {
+      params: { batch_folder: batchFolder, force_replace: forceReplace }
+    }),
+  checkDuplicate: (requestData) =>
+    api.post('/reconciliation/check-duplicate', requestData),
+  deleteBatch: (batchId) =>
+    api.delete(`/reconciliation/batches/${batchId}`),
   listBatches: (params) => {
-    // Filter out empty string values to avoid 422 errors
     const cleanParams = Object.fromEntries(
       Object.entries(params || {}).filter(([_, v]) => v !== '' && v != null)
     )
@@ -100,25 +126,23 @@ export const reconciliationApi = {
   getBatch: (batchId) => api.get(`/reconciliation/batches/${batchId}`),
   rerunBatch: (batchId) => api.post(`/reconciliation/batches/${batchId}/rerun`),
   stopBatch: (batchId) => api.post(`/reconciliation/batches/${batchId}/stop`),
-  checkDuplicate: (partnerCode, serviceCode, dateFrom, dateTo) => 
-    api.get('/reconciliation/check-duplicate', { 
-      params: { partner_code: partnerCode, service_code: serviceCode, date_from: dateFrom, date_to: dateTo } 
-    }),
-  deleteBatch: (batchId) => api.delete(`/reconciliation/batches/${batchId}`),
+  getRunLogs: (batchId, runNumber) => api.get(`/reconciliation/batches/${batchId}/runs/${runNumber}/logs`),
 }
 
+// ============================================================================
 // Reports API
+// ============================================================================
+
 export const reportsApi = {
-  preview: (batchId, fileType, params) => 
+  preview: (batchId, fileType, params) =>
     api.get(`/reports/preview/${batchId}/${fileType}`, { params }),
-  downloadUrl: (batchId, fileType, format = 'csv') => 
-    `/api/v1/reports/download/${batchId}/${fileType}?format=${format}`,
+  downloadUrl: (batchId, fileType, format = 'csv') =>
+    `/api/v2/reports/download/${batchId}/${fileType}?format=${format}`,
   download: async (batchId, fileType, format = 'csv') => {
     const response = await api.get(`/reports/download/${batchId}/${fileType}`, {
       params: { format },
       responseType: 'blob'
     })
-    // Create download link
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
@@ -133,7 +157,10 @@ export const reportsApi = {
   getStats: (batchId) => api.get(`/reports/stats/${batchId}`),
 }
 
+// ============================================================================
 // Approvals API
+// ============================================================================
+
 export const approvalsApi = {
   listPending: (params) => api.get('/approvals/pending', { params }),
   submit: (batchId) => api.post(`/approvals/submit/${batchId}`),
@@ -144,74 +171,73 @@ export const approvalsApi = {
   getStats: (params) => api.get('/approvals/stats', { params }),
 }
 
+// ============================================================================
 // Users API (Admin)
+// ============================================================================
+
 export const usersApi = {
-  list: () => {
-    const token = getToken()
-    return api.get('/users/', { headers: { Authorization: `Bearer ${token}` } })
-  },
-  get: (userId) => {
-    const token = getToken()
-    return api.get(`/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  create: (data) => {
-    const token = getToken()
-    return api.post('/users/', data, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  update: (userId, data) => {
-    const token = getToken()
-    return api.put(`/users/${userId}`, data, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  delete: (userId) => {
-    const token = getToken()
-    return api.delete(`/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  addPermission: (userId, permission) => {
-    const token = getToken()
-    return api.post(`/users/${userId}/permissions`, permission, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  removePermission: (userId, permissionId) => {
-    const token = getToken()
-    return api.delete(`/users/${userId}/permissions/${permissionId}`, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  bulkUpdatePermissions: (userId, permissions) => {
-    const token = getToken()
-    return api.put(`/users/${userId}/permissions/bulk`, { permissions }, { headers: { Authorization: `Bearer ${token}` } })
-  },
+  list: () => api.get('/users/'),
+  get: (userId) => api.get(`/users/${userId}`),
+  create: (data) => api.post('/users/', data),
+  update: (userId, data) => api.put(`/users/${userId}`, data),
+  delete: (userId) => api.delete(`/users/${userId}`),
+  addPermission: (userId, permission) => api.post(`/users/${userId}/permissions`, permission),
+  removePermission: (userId, permissionId) => api.delete(`/users/${userId}/permissions/${permissionId}`),
+  bulkUpdatePermissions: (userId, permissions) => api.put(`/users/${userId}/permissions/bulk`, { permissions }),
 }
 
-// Configs API (Admin)
+// ============================================================================
+// Configs API
+// ============================================================================
+
 export const configsApi = {
-  list: (params) => {
-    const token = getToken()
-    return api.get('/configs/', { headers: { Authorization: `Bearer ${token}` }, params })
-  },
-  get: (configId) => {
-    const token = getToken()
-    return api.get(`/configs/${configId}`, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  create: (data) => {
-    const token = getToken()
-    return api.post('/configs/', data, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  update: (configId, data) => {
-    const token = getToken()
-    return api.put(`/configs/${configId}`, data, { headers: { Authorization: `Bearer ${token}` } })
-  },
-  delete: (configId, hardDelete = false) => {
-    const token = getToken()
-    return api.delete(`/configs/${configId}`, { headers: { Authorization: `Bearer ${token}` }, params: { hard_delete: hardDelete } })
-  },
-  duplicate: (configId, validFrom, validTo) => {
-    const token = getToken()
-    return api.post(`/configs/${configId}/duplicate`, null, { 
-      headers: { Authorization: `Bearer ${token}` },
-      params: { new_valid_from: validFrom, new_valid_to: validTo } 
-    })
-  },
+  list: (params) => api.get('/configs/', { params }),
+  get: (configId) => api.get(`/configs/${configId}`),
+  create: (data) => api.post('/configs/', data),
+  update: (configId, data) => api.patch(`/configs/${configId}`, data),
+  delete: (configId) => api.delete(`/configs/${configId}`),
 }
 
+// ============================================================================
+// Data Sources API
+// ============================================================================
+
+export const dataSourcesApi = {
+  getByConfig: (configId) => api.get(`/data-sources/by-config/${configId}`),
+  get: (sourceId) => api.get(`/data-sources/${sourceId}`),
+  create: (data) => api.post('/data-sources/', data),
+  update: (sourceId, data) => api.patch(`/data-sources/${sourceId}`, data),
+  delete: (sourceId) => api.delete(`/data-sources/${sourceId}`),
+}
+
+// ============================================================================
+// Workflows API
+// ============================================================================
+
+export const workflowsApi = {
+  getByConfig: (configId) => api.get(`/workflows/by-config/${configId}`),
+  get: (stepId) => api.get(`/workflows/${stepId}`),
+  create: (data) => api.post('/workflows/', data),
+  update: (stepId, data) => api.patch(`/workflows/${stepId}`, data),
+  delete: (stepId) => api.delete(`/workflows/${stepId}`),
+}
+
+// ============================================================================
+// Outputs API
+// ============================================================================
+
+export const outputsApi = {
+  getByConfig: (configId) => api.get(`/outputs/by-config/${configId}`),
+  get: (outputId) => api.get(`/outputs/${outputId}`),
+  create: (data) => api.post('/outputs/', data),
+  update: (outputId, data) => api.patch(`/outputs/${outputId}`, data),
+  delete: (outputId) => api.delete(`/outputs/${outputId}`),
+}
+
+// ============================================================================
 // Mock Data API (Admin)
+// ============================================================================
+
 export const mockDataApi = {
   list: () => api.get('/mock-data'),
   upload: (partnerCode, serviceCode, file) => {
@@ -222,122 +248,22 @@ export const mockDataApi = {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   },
-  preview: (filename, limit = 20) => 
+  preview: (filename, limit = 20) =>
     api.get(`/mock-data/preview/${filename}`, { params: { limit } }),
-  download: (filename) => `/api/v1/mock-data/download/${filename}`,
+  download: (filename) => `/api/v2/mock-data/download/${filename}`,
   delete: (filename) => api.delete(`/mock-data/${filename}`),
-  getColumns: (partnerCode, serviceCode) => 
+  getColumns: (partnerCode, serviceCode) =>
     api.get(`/mock-data/columns/${partnerCode}/${serviceCode}`),
 }
 
 // ============================================================================
-// API V2 - Dynamic Reconciliation System
+// Backward compatibility aliases (for pages still using old V2 names)
 // ============================================================================
 
-// Create separate axios instance for v2
-const apiV2 = axios.create({
-  baseURL: '/api/v2',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
-
-// Use same interceptors as v1
-apiV2.interceptors.request.use(
-  (config) => {
-    if (!config.headers.Authorization) {
-      const token = getToken()
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-      }
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
-
-apiV2.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('auth-storage')
-      setAuthToken(null)
-      window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  }
-)
-
-// V2 Configs API
-export const configsApiV2 = {
-  list: (params) => apiV2.get('/configs/', { params }),
-  get: (configId) => apiV2.get(`/configs/${configId}`),
-  create: (data) => apiV2.post('/configs/', data),
-  update: (configId, data) => apiV2.patch(`/configs/${configId}`, data),
-  delete: (configId) => apiV2.delete(`/configs/${configId}`),
-}
-
-// V2 Data Sources API
-export const dataSourcesApiV2 = {
-  getByConfig: (configId) => apiV2.get(`/data-sources/by-config/${configId}`),
-  get: (sourceId) => apiV2.get(`/data-sources/${sourceId}`),
-  create: (data) => apiV2.post('/data-sources/', data),
-  update: (sourceId, data) => apiV2.patch(`/data-sources/${sourceId}`, data),
-  delete: (sourceId) => apiV2.delete(`/data-sources/${sourceId}`),
-}
-
-// V2 Workflows API
-export const workflowsApiV2 = {
-  getByConfig: (configId) => apiV2.get(`/workflows/by-config/${configId}`),
-  get: (stepId) => apiV2.get(`/workflows/${stepId}`),
-  create: (data) => apiV2.post('/workflows/', data),
-  update: (stepId, data) => apiV2.patch(`/workflows/${stepId}`, data),
-  delete: (stepId) => apiV2.delete(`/workflows/${stepId}`),
-}
-
-// V2 Outputs API
-export const outputsApiV2 = {
-  getByConfig: (configId) => apiV2.get(`/outputs/by-config/${configId}`),
-  get: (outputId) => apiV2.get(`/outputs/${outputId}`),
-  create: (data) => apiV2.post('/outputs/', data),
-  update: (outputId, data) => apiV2.patch(`/outputs/${outputId}`, data),
-  delete: (outputId) => apiV2.delete(`/outputs/${outputId}`),
-}
-
-// V2 Reconciliation API
-export const reconciliationApiV2 = {
-  uploadFiles: (configId, files, sourceNames, onProgress) => {
-    const formData = new FormData()
-    files.forEach(file => formData.append('files', file))
-    formData.append('source_names', sourceNames.join(','))
-    return apiV2.post(`/reconciliation/upload-files/${configId}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (progressEvent) => {
-        if (onProgress && progressEvent.total) {
-          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          onProgress(percent)
-        }
-      }
-    })
-  },
-  run: (requestData, batchFolder, forceReplace = false) => 
-    apiV2.post('/reconciliation/run', requestData, { 
-      params: { batch_folder: batchFolder, force_replace: forceReplace } 
-    }),
-  checkDuplicate: (requestData) =>
-    apiV2.post('/reconciliation/check-duplicate', requestData),
-  deleteBatch: (batchId) =>
-    apiV2.delete(`/reconciliation/batches/${batchId}`),
-  listBatches: (params) => {
-    const cleanParams = Object.fromEntries(
-      Object.entries(params || {}).filter(([_, v]) => v !== '' && v != null)
-    )
-    return apiV2.get('/reconciliation/batches', { params: cleanParams })
-  },
-  getBatch: (batchId) => apiV2.get(`/reconciliation/batches/${batchId}`),
-  rerunBatch: (batchId) => apiV2.post(`/reconciliation/batches/${batchId}/rerun`),
-  stopBatch: (batchId) => apiV2.post(`/reconciliation/batches/${batchId}/stop`),
-  getRunLogs: (batchId, runNumber) => apiV2.get(`/reconciliation/batches/${batchId}/runs/${runNumber}/logs`),
-}
+export const configsApiV2 = configsApi
+export const dataSourcesApiV2 = dataSourcesApi
+export const workflowsApiV2 = workflowsApi
+export const outputsApiV2 = outputsApi
+export const reconciliationApiV2 = reconciliationApi
 
 export default api
