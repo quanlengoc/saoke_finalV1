@@ -2610,7 +2610,8 @@ function MatchingRulesEditorV2({
   const statusLogic = matchingRules.status_logic || {
     all_match: 'MATCHED',
     key_match_amount_mismatch: 'MISMATCH',
-    no_key_match: 'NOT_FOUND'
+    no_key_match: 'NOT_FOUND',
+    no_key_match_right: 'RIGHT_ONLY'
   }
   
   const SIMPLE_TRANSFORMS = [
@@ -3422,7 +3423,7 @@ function MatchingRulesEditorV2({
           <span className="font-medium text-purple-800">Logic gán trạng thái</span>
         </div>
         
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <div>
             <label className="block text-xs text-gray-600 mb-1">Key khớp + Amount khớp</label>
             <input
@@ -3442,11 +3443,20 @@ function MatchingRulesEditorV2({
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Key không khớp</label>
+            <label className="block text-xs text-gray-600 mb-1">Left không khớp</label>
             <input
               type="text"
               value={statusLogic.no_key_match || 'NOT_FOUND'}
               onChange={(e) => updateMatchingRules({ status_logic: { ...statusLogic, no_key_match: e.target.value } })}
+              className="w-full px-3 py-1.5 border rounded text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Right không khớp</label>
+            <input
+              type="text"
+              value={statusLogic.no_key_match_right || 'RIGHT_ONLY'}
+              onChange={(e) => updateMatchingRules({ status_logic: { ...statusLogic, no_key_match_right: e.target.value } })}
               className="w-full px-3 py-1.5 border rounded text-sm font-mono"
             />
           </div>
@@ -3505,21 +3515,35 @@ function MatchingRulesEditorV2({
 //   when: [ [{column, value}, ...], [...] ]  → OR of AND-groups
 //   then: "result_value"
 // ============================================
+// Operator definitions for EXPRESSION rule conditions
+const EXPRESSION_OPERATORS = [
+  { value: 'eq', label: '=', hint: 'Bằng' },
+  { value: 'ne', label: '≠', hint: 'Khác' },
+  { value: 'gt', label: '>', hint: 'Lớn hơn (số)' },
+  { value: 'lt', label: '<', hint: 'Nhỏ hơn (số)' },
+  { value: 'gte', label: '≥', hint: 'Lớn hơn hoặc bằng' },
+  { value: 'lte', label: '≤', hint: 'Nhỏ hơn hoặc bằng' },
+  { value: 'contains', label: 'Chứa', hint: 'Chuỗi chứa (ko phân biệt hoa thường)' },
+  { value: 'is_not_empty', label: 'Có giá trị', hint: 'Không rỗng / không null' },
+  { value: 'is_empty', label: 'Rỗng', hint: 'Rỗng hoặc null' },
+  { value: 'func', label: 'Hàm', hint: 'Biểu thức Python (COL là cột hiện tại)' },
+]
+
 function ExpressionRuleBuilder({ expression, onChange, availableColumns }) {
   const rules = expression?.rules || []
   const defaultVal = expression?.default || ''
-  
+
   const updateRules = (newRules) => {
     onChange({ ...expression, rules: newRules, default: defaultVal })
   }
-  
+
   // --- Rule CRUD ---
   const addRule = () => {
     // New rule with one OR-group containing one empty condition
     const firstCol = availableColumns[0] || ''
-    updateRules([...rules, { 
-      when: [[{ column: firstCol, value: '' }]], 
-      then: '' 
+    updateRules([...rules, {
+      when: [[{ column: firstCol, op: 'eq', value: '' }]],
+      then: ''
     }])
   }
   
@@ -3538,7 +3562,7 @@ function ExpressionRuleBuilder({ expression, onChange, availableColumns }) {
     const newRules = [...rules]
     const when = [...(newRules[ruleIdx].when || [])]
     const firstCol = availableColumns[0] || ''
-    when.push([{ column: firstCol, value: '' }])
+    when.push([{ column: firstCol, op: 'eq', value: '' }])
     newRules[ruleIdx] = { ...newRules[ruleIdx], when }
     updateRules(newRules)
   }
@@ -3557,7 +3581,7 @@ function ExpressionRuleBuilder({ expression, onChange, availableColumns }) {
     const when = [...(newRules[ruleIdx].when || [])]
     const group = [...(when[groupIdx] || [])]
     const firstCol = availableColumns[0] || ''
-    group.push({ column: firstCol, value: '' })
+    group.push({ column: firstCol, op: 'eq', value: '' })
     when[groupIdx] = group
     newRules[ruleIdx] = { ...newRules[ruleIdx], when }
     updateRules(newRules)
@@ -3633,37 +3657,63 @@ function ExpressionRuleBuilder({ expression, onChange, availableColumns }) {
                         )}
                         <div className="ml-2 pl-2 border-l-2 border-blue-200 space-y-1">
                           {/* AND conditions within group */}
-                          {(group || []).map((cond, condIdx) => (
-                            <div key={condIdx} className="flex items-center gap-1.5">
-                              {condIdx > 0 && <span className="text-xs text-blue-600 font-semibold w-8 text-center">VÀ</span>}
-                              {condIdx === 0 && <span className="w-8"></span>}
-                              <select
-                                value={cond.column || ''}
-                                onChange={(e) => updateCondition(ruleIdx, groupIdx, condIdx, 'column', e.target.value)}
-                                className="px-1.5 py-1 border rounded text-xs bg-blue-50 min-w-[140px]"
-                              >
-                                <option value="">-- Chọn cột --</option>
-                                {availableColumns.map(c => (
-                                  <option key={c} value={c}>{c}</option>
-                                ))}
-                              </select>
-                              <span className="text-xs text-gray-400">=</span>
-                              <input
-                                type="text"
-                                value={cond.value || ''}
-                                onChange={(e) => updateCondition(ruleIdx, groupIdx, condIdx, 'value', e.target.value)}
-                                className="px-1.5 py-1 border rounded text-xs font-mono flex-1 min-w-[100px]"
-                                placeholder="giá trị"
-                              />
-                              <button
-                                onClick={() => removeCondition(ruleIdx, groupIdx, condIdx)}
-                                className="text-red-300 hover:text-red-500 flex-shrink-0"
-                                title="Xóa điều kiện"
-                              >
-                                <XMarkIcon className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ))}
+                          {(group || []).map((cond, condIdx) => {
+                            const condOp = cond.op || 'eq'
+                            const noValueOps = ['is_empty', 'is_not_empty']
+                            const isFuncOp = condOp === 'func'
+                            const needsValue = !noValueOps.includes(condOp)
+                            return (
+                              <div key={condIdx} className={`flex ${isFuncOp ? 'items-start' : 'items-center'} gap-1.5`}>
+                                {condIdx > 0 && <span className="text-xs text-blue-600 font-semibold w-8 text-center mt-1">VÀ</span>}
+                                {condIdx === 0 && <span className="w-8"></span>}
+                                <select
+                                  value={cond.column || ''}
+                                  onChange={(e) => updateCondition(ruleIdx, groupIdx, condIdx, 'column', e.target.value)}
+                                  className="px-1.5 py-1 border rounded text-xs bg-blue-50 min-w-[130px]"
+                                >
+                                  <option value="">-- Chọn cột --</option>
+                                  {availableColumns.map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={condOp}
+                                  onChange={(e) => updateCondition(ruleIdx, groupIdx, condIdx, 'op', e.target.value)}
+                                  className="px-1 py-1 border rounded text-xs bg-amber-50 font-medium min-w-[85px]"
+                                  title={EXPRESSION_OPERATORS.find(o => o.value === condOp)?.hint || ''}
+                                >
+                                  {EXPRESSION_OPERATORS.map(op => (
+                                    <option key={op.value} value={op.value} title={op.hint}>{op.label}</option>
+                                  ))}
+                                </select>
+                                {needsValue && !isFuncOp && (
+                                  <input
+                                    type="text"
+                                    value={cond.value || ''}
+                                    onChange={(e) => updateCondition(ruleIdx, groupIdx, condIdx, 'value', e.target.value)}
+                                    className="px-1.5 py-1 border rounded text-xs font-mono flex-1 min-w-[100px]"
+                                    placeholder="giá trị"
+                                  />
+                                )}
+                                {isFuncOp && (
+                                  <textarea
+                                    value={cond.value || ''}
+                                    onChange={(e) => updateCondition(ruleIdx, groupIdx, condIdx, 'value', e.target.value)}
+                                    className="px-1.5 py-1 border rounded text-xs font-mono flex-1 min-w-[200px] bg-purple-50 resize-y"
+                                    placeholder="VD: COL.str.len() > 5 hoặc pd.to_numeric(COL, errors='coerce') > 1000"
+                                    rows={2}
+                                  />
+                                )}
+                                <button
+                                  onClick={() => removeCondition(ruleIdx, groupIdx, condIdx)}
+                                  className="text-red-300 hover:text-red-500 flex-shrink-0"
+                                  title="Xóa điều kiện"
+                                >
+                                  <XMarkIcon className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )
+                          })}
                           <div className="flex items-center gap-2 ml-8">
                             <button
                               onClick={() => addCondition(ruleIdx, groupIdx)}
@@ -3862,7 +3912,7 @@ function WorkflowOutputColumnsEditor({ step, stepId, updateWorkflowStep, dataSou
   const getSourceColumns = (sourceName) => {
     // Special case: MATCH_STATUS
     if (sourceName === 'MATCH_STATUS') {
-      return ['match_status', 'match_detail']
+      return ['match_status', 'match_detail', 'amount_difference', 'left_key', 'right_key', 'left_amount', 'right_amount']
     }
     
     // EXPRESSION has no source columns - uses rule builder instead
@@ -3952,8 +4002,9 @@ function WorkflowOutputColumnsEditor({ step, stepId, updateWorkflowStep, dataSou
         <div className="space-y-2">
           <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 font-medium px-1">
             <div className="col-span-2">1. Nguồn</div>
-            <div className="col-span-4">2. Cột nguồn</div>
-            <div className="col-span-5">3. Tên cột output</div>
+            <div className="col-span-3">2. Cột nguồn</div>
+            <div className="col-span-4">3. Tên cột output</div>
+            <div className="col-span-1 text-center" title="Cho phép lọc theo cột này trong kết quả">Lọc</div>
             <div className="col-span-1"></div>
           </div>
           
@@ -3975,23 +4026,23 @@ function WorkflowOutputColumnsEditor({ step, stepId, updateWorkflowStep, dataSou
               {col.source === 'EXPRESSION' ? (
                 <>
                   {/* EXPRESSION: no source_column, just display_name */}
-                  <div className="col-span-4 text-xs text-gray-400 flex items-center px-2">
+                  <div className="col-span-3 text-xs text-gray-400 flex items-center px-2">
                     ← Cấu hình rules bên dưới
                   </div>
-                  
+
                   {/* Tên cột output */}
                   <input
                     type="text"
                     value={col.display_name || ''}
                     onChange={(e) => updateColumn(colIdx, 'display_name', e.target.value)}
-                    className={`col-span-5 px-2 py-1.5 border rounded text-sm font-mono ${hasDisplayNameError(colIdx) ? errorBorder : ''}`}
+                    className={`col-span-4 px-2 py-1.5 border rounded text-sm font-mono ${hasDisplayNameError(colIdx) ? errorBorder : ''}`}
                     placeholder="vd: final_status"
                   />
                 </>
               ) : (
                 <>
                   {/* 2. Cột nguồn */}
-                  <div className="col-span-4">
+                  <div className="col-span-3">
                     {col.source && getSourceColumns(col.source).length > 0 ? (
                       <select
                         value={col.source_column || ''}
@@ -4015,18 +4066,29 @@ function WorkflowOutputColumnsEditor({ step, stepId, updateWorkflowStep, dataSou
                       <span className="text-xs text-gray-400 px-2 py-1.5 block">← Chọn nguồn trước</span>
                     )}
                   </div>
-                  
+
                   {/* 3. Tên cột output (auto-filled from source_column) */}
                   <input
                     type="text"
                     value={col.display_name || ''}
                     onChange={(e) => updateColumn(colIdx, 'display_name', e.target.value)}
-                    className={`col-span-5 px-2 py-1.5 border rounded text-sm font-mono ${hasDisplayNameError(colIdx) ? errorBorder : ''}`}
+                    className={`col-span-4 px-2 py-1.5 border rounded text-sm font-mono ${hasDisplayNameError(colIdx) ? errorBorder : ''}`}
                     placeholder="(auto-fill)"
                   />
                 </>
               )}
-              
+
+              {/* Filterable checkbox */}
+              <div className="col-span-1 flex items-center justify-center">
+                <input
+                  type="checkbox"
+                  checked={!!col.filterable}
+                  onChange={(e) => updateColumn(colIdx, 'filterable', e.target.checked)}
+                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded cursor-pointer"
+                  title="Cho phép lọc theo cột này"
+                />
+              </div>
+
               <button
                 onClick={() => removeColumn(colIdx)}
                 className="col-span-1 text-red-400 hover:text-red-600 flex items-center justify-center"

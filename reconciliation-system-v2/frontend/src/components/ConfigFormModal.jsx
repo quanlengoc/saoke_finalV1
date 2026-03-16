@@ -62,7 +62,8 @@ const DEFAULT_CONFIG = {
     status_logic: {
       all_match: 'MATCHED',
       key_match_amount_mismatch: 'MISMATCH',
-      no_key_match: 'NOT_FOUND'
+      no_key_match: 'NOT_FOUND',
+      no_key_match_right: 'RIGHT_ONLY'
     }
   },
   matching_rules_b1b2: null,
@@ -741,7 +742,7 @@ function MatchingRulesEditor({
   // Extract config with safe defaults
   const keyMatchConfig = safeObj(config?.key_match)
   const amountMatchConfig = safeObj(config?.amount_match)
-  const statusLogic = config?.status_logic || { all_match: 'MATCHED', key_match_amount_mismatch: 'MISMATCH', no_key_match: 'NOT_FOUND' }
+  const statusLogic = config?.status_logic || { all_match: 'MATCHED', key_match_amount_mismatch: 'MISMATCH', no_key_match: 'NOT_FOUND', no_key_match_right: 'RIGHT_ONLY' }
   const expressionMode = config?.expression_mode || 'simple'
   const keyExpression = config?.key_expression || ''
   const amountExpression = config?.amount_expression || ''
@@ -1593,7 +1594,7 @@ function MatchingRulesEditor({
           {/* STATUS LOGIC */}
           <div className="border rounded-lg p-4 bg-gray-50">
             <h4 className="font-medium text-gray-700 mb-3">⚙️ Logic xác định Status</h4>
-            <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-4 gap-4 text-sm">
               <div>
                 <label className="text-gray-600 block mb-1">✅ Key + Amount khớp:</label>
                 <input type="text" value={statusLogic.all_match || 'MATCHED'}
@@ -1607,9 +1608,15 @@ function MatchingRulesEditor({
                   className="w-full px-2 py-1 border rounded" />
               </div>
               <div>
-                <label className="text-gray-600 block mb-1">❌ Không tìm thấy Key:</label>
+                <label className="text-gray-600 block mb-1">❌ Left không khớp:</label>
                 <input type="text" value={statusLogic.no_key_match || 'NOT_FOUND'}
                   onChange={(e) => updateConfig({ status_logic: { ...statusLogic, no_key_match: e.target.value } })}
+                  className="w-full px-2 py-1 border rounded" />
+              </div>
+              <div>
+                <label className="text-gray-600 block mb-1">🔶 Right không khớp:</label>
+                <input type="text" value={statusLogic.no_key_match_right || 'RIGHT_ONLY'}
+                  onChange={(e) => updateConfig({ status_logic: { ...statusLogic, no_key_match_right: e.target.value } })}
                   className="w-full px-2 py-1 border rounded" />
               </div>
             </div>
@@ -2318,7 +2325,7 @@ export default function ConfigFormModal({ isOpen, onClose, editConfig = null }) 
                               enabled: true,
                               key_match: { left: { parts: [] }, right: { parts: [] }, compare_type: 'exact' },
                               amount_match: { left: { parts: [] }, right: { parts: [] }, tolerance: 0 },
-                              status_logic: { all_match: 'MATCHED', no_key_match: 'NOT_FOUND' }
+                              status_logic: { all_match: 'MATCHED', no_key_match: 'NOT_FOUND', no_key_match_right: 'RIGHT_ONLY' }
                             }
                           })
                         } else {
@@ -2372,7 +2379,7 @@ export default function ConfigFormModal({ isOpen, onClose, editConfig = null }) 
                               enabled: true,
                               key_match: { left: { parts: [] }, right: { parts: [] }, compare_type: 'exact' },
                               amount_match: { left: { parts: [] }, right: { parts: [] }, tolerance: 0 },
-                              status_logic: { all_match: 'MATCHED', no_key_match: 'NOT_FOUND' }
+                              status_logic: { all_match: 'MATCHED', no_key_match: 'NOT_FOUND', no_key_match_right: 'RIGHT_ONLY' }
                             }
                           })
                         } else {

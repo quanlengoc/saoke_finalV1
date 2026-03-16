@@ -208,7 +208,10 @@ class GenericMatchingEngine:
         Internal columns (_match_key, _left_idx, _right_idx) are excluded.
         Existing result columns (status, note, amount_diff, *_index) are not overwritten.
         """
-        internal_cols = {'_match_key', '_left_idx', '_right_idx'}
+        internal_cols = {'_match_key', '_left_idx', '_right_idx',
+                         '_left_key_value', '_right_key_value',
+                         '_debug_left_key', '_debug_right_key',
+                         '_debug_left_amount', '_debug_right_amount'}
         
         left_cols = [c for c in left_df.columns if c not in internal_cols]
         if left_cols:
@@ -299,13 +302,17 @@ class GenericMatchingEngine:
         logger.info(f"Parsed key columns: {left_name}[{left_key_col}] <-> {right_name}[{right_key_col}]")
         
         # Build key columns WITHOUT copying the full DataFrames
+        left_key_series = self._build_key_column(left_df, left_key_col, left_transforms)
+        right_key_series = self._build_key_column(right_df, right_key_col, right_transforms)
         left_keys = pd.DataFrame({
             '_left_idx': left_df.index,
-            '_match_key': self._build_key_column(left_df, left_key_col, left_transforms),
+            '_match_key': left_key_series,
+            '_left_key_value': left_key_series,
         })
         right_keys = pd.DataFrame({
             '_right_idx': right_df.index,
-            '_match_key': self._build_key_column(right_df, right_key_col, right_transforms),
+            '_match_key': right_key_series,
+            '_right_key_value': right_key_series,
         })
         
         left_unique = left_keys['_match_key'].nunique()
@@ -330,26 +337,42 @@ class GenericMatchingEngine:
         logger.info(f"Merge completed in {time.time() - start_time:.2f}s. Merged rows: {len(merged)}")
         
         # Handle duplicates on left side - keep first match
-        merged = merged.drop_duplicates(subset=['_left_idx'], keep='first')
-        
-        # Build results DataFrame
+        # Split: LEFT-only rows (NaN _left_idx for RIGHT join / OUTER) must be preserved
+        left_has = merged['_left_idx'].notna()
+        merged_with_left = merged[left_has].drop_duplicates(subset=['_left_idx'], keep='first')
+        merged_right_only = merged[~left_has]
+        merged = pd.concat([merged_with_left, merged_right_only], ignore_index=True)
+
+        # Build results DataFrame with debug key columns
         results = pd.DataFrame({
             f'{left_name}_index': merged['_left_idx'].values,
-            f'{right_name}_index': merged['_right_idx'].values
+            f'{right_name}_index': merged['_right_idx'].values,
+            '_debug_left_key': merged['_left_key_value'].values if '_left_key_value' in merged.columns else None,
+            '_debug_right_key': merged['_right_key_value'].values if '_right_key_value' in merged.columns else None,
         })
-        
+
         # Determine status
+        right_missing = results[f'{right_name}_index'].isna()
+        left_missing = results[f'{left_name}_index'].isna()
         results['status'] = np.where(
-            results[f'{right_name}_index'].isna(),
+            right_missing,
             status_logic.get('no_key_match', 'NOT_FOUND'),
-            status_logic.get('all_match', 'MATCHED')
+            np.where(
+                left_missing,
+                status_logic.get('no_key_match_right', 'RIGHT_ONLY'),
+                status_logic.get('all_match', 'MATCHED')
+            )
         )
         results['note'] = np.where(
-            results[f'{right_name}_index'].isna(),
-            'Không tìm thấy giao dịch khớp',
-            'Khớp'
+            right_missing,
+            'Không tìm thấy giao dịch khớp (LEFT)',
+            np.where(
+                left_missing,
+                'Không tìm thấy giao dịch khớp (RIGHT)',
+                'Khớp'
+            )
         )
-        
+
         # Apply amount check if rule exists
         if amount_rule:
             results = self._apply_amount_check(
@@ -358,6 +381,8 @@ class GenericMatchingEngine:
             )
         else:
             results['amount_diff'] = 0
+            results['_debug_left_amount'] = None
+            results['_debug_right_amount'] = None
         
         # JOIN LEFT source columns (for chained step key availability)
         results = self._join_left_columns(results, left_df, left_name)
@@ -414,22 +439,28 @@ class GenericMatchingEngine:
             left_keys = pd.DataFrame({
                 '_left_idx': left_df.index,
                 '_match_key': left_key_series,
+                '_left_key_value': left_key_series,
             })
             right_keys = pd.DataFrame({
                 '_right_idx': right_df.index,
                 '_match_key': right_key_series,
+                '_right_key_value': right_key_series,
             })
         else:
             # Structured config (simple mode)
             left_config = key_match.get('left', {})
             right_config = key_match.get('right', {})
+            left_key_series = self._build_structured_key_column(left_df, left_config, left_name)
+            right_key_series = self._build_structured_key_column(right_df, right_config, right_name)
             left_keys = pd.DataFrame({
                 '_left_idx': left_df.index,
-                '_match_key': self._build_structured_key_column(left_df, left_config, left_name),
+                '_match_key': left_key_series,
+                '_left_key_value': left_key_series,
             })
             right_keys = pd.DataFrame({
                 '_right_idx': right_df.index,
-                '_match_key': self._build_structured_key_column(right_df, right_config, right_name),
+                '_match_key': right_key_series,
+                '_right_key_value': right_key_series,
             })
         
         left_unique = left_keys['_match_key'].nunique()
@@ -460,28 +491,43 @@ class GenericMatchingEngine:
         )
         
         logger.info(f"Merge completed in {time.time() - start_time:.2f}s. Merged rows: {len(merged)}")
-        
-        # Handle duplicates on left side
-        merged = merged.drop_duplicates(subset=['_left_idx'], keep='first')
-        
-        # Build results DataFrame
+
+        # Handle duplicates on left side — preserve RIGHT-only rows (NaN _left_idx)
+        left_has = merged['_left_idx'].notna()
+        merged_with_left = merged[left_has].drop_duplicates(subset=['_left_idx'], keep='first')
+        merged_right_only = merged[~left_has]
+        merged = pd.concat([merged_with_left, merged_right_only], ignore_index=True)
+
+        # Build results DataFrame with debug key columns
         results = pd.DataFrame({
             f'{left_name}_index': merged['_left_idx'].values,
-            f'{right_name}_index': merged['_right_idx'].values
+            f'{right_name}_index': merged['_right_idx'].values,
+            '_debug_left_key': merged['_left_key_value'].values if '_left_key_value' in merged.columns else None,
+            '_debug_right_key': merged['_right_key_value'].values if '_right_key_value' in merged.columns else None,
         })
-        
+
         # Determine status
+        right_missing = results[f'{right_name}_index'].isna()
+        left_missing = results[f'{left_name}_index'].isna()
         results['status'] = np.where(
-            results[f'{right_name}_index'].isna(),
+            right_missing,
             status_logic.get('no_key_match', 'NOT_FOUND'),
-            status_logic.get('all_match', 'MATCHED')
+            np.where(
+                left_missing,
+                status_logic.get('no_key_match_right', 'RIGHT_ONLY'),
+                status_logic.get('all_match', 'MATCHED')
+            )
         )
         results['note'] = np.where(
-            results[f'{right_name}_index'].isna(),
-            'Không tìm thấy giao dịch khớp',
-            'Khớp'
+            right_missing,
+            'Không tìm thấy giao dịch khớp (LEFT)',
+            np.where(
+                left_missing,
+                'Không tìm thấy giao dịch khớp (RIGHT)',
+                'Khớp'
+            )
         )
-        
+
         # Apply amount check if configured
         if amount_match:
             results = self._apply_structured_amount_check(
@@ -490,6 +536,8 @@ class GenericMatchingEngine:
             )
         else:
             results['amount_diff'] = 0
+            results['_debug_left_amount'] = None
+            results['_debug_right_amount'] = None
         
         # JOIN LEFT source columns (for chained step key availability)
         results = self._join_left_columns(results, left_df, left_name)
@@ -625,7 +673,13 @@ class GenericMatchingEngine:
         Eval one side of an expression (e.g. LEFT['Mô tả'].str.extract(...))
         by substituting var_name with the actual DataFrame.
         """
-        local_vars = {var_name: df}
+        local_vars = {
+            var_name: df,
+            'normalize_number': normalize_number_series_vectorized,
+            'normalize_number_string': normalize_number_string,
+            'normalize_number_series_vectorized': normalize_number_series_vectorized,
+            'transform_extract_amount': transform_extract_amount,
+        }
 
         try:
             result = eval(expr_str, local_vars)
@@ -661,8 +715,11 @@ class GenericMatchingEngine:
         """
         logger.info(f"Advanced mode: eval amount expression: {expression}")
 
-        matched_mask = results[f'{right_name}_index'].notna()
+        # Both sides must have valid indices (important for OUTER join where one side can be NaN)
+        matched_mask = results[f'{left_name}_index'].notna() & results[f'{right_name}_index'].notna()
         results['amount_diff'] = None
+        results['_debug_left_amount'] = None
+        results['_debug_right_amount'] = None
 
         if not matched_mask.any():
             return results
@@ -697,6 +754,8 @@ class GenericMatchingEngine:
 
             diff = np.abs(left_amounts - right_amounts)
             results.loc[matched_mask, 'amount_diff'] = diff
+            results.loc[matched_mask, '_debug_left_amount'] = left_amounts
+            results.loc[matched_mask, '_debug_right_amount'] = right_amounts
 
             mismatch_mask = matched_mask & (results['amount_diff'] > tolerance)
             mismatch_status = status_logic.get('key_match_amount_mismatch',
@@ -748,23 +807,28 @@ class GenericMatchingEngine:
 
         if not left_col or not right_col:
             results['amount_diff'] = 0
+            results['_debug_left_amount'] = None
+            results['_debug_right_amount'] = None
             return results
-        
-        matched_mask = results[f'{right_name}_index'].notna()
+
+        # Both sides must have valid indices (important for OUTER join)
+        matched_mask = results[f'{left_name}_index'].notna() & results[f'{right_name}_index'].notna()
         results['amount_diff'] = None
-        
+        results['_debug_left_amount'] = None
+        results['_debug_right_amount'] = None
+
         if matched_mask.any():
             left_indices = results.loc[matched_mask, f'{left_name}_index'].astype(int).values
             right_indices = results.loc[matched_mask, f'{right_name}_index'].astype(int).values
-            
+
             try:
                 left_raw = left_df.loc[left_indices, left_col] if left_col in left_df.columns else pd.Series([0]*len(left_indices))
                 right_raw = right_df.loc[right_indices, right_col] if right_col in right_df.columns else pd.Series([0]*len(right_indices))
-                
+
                 # Apply number transforms if configured
                 left_transform = amount_match.get('left', {}).get('numberTransform')
                 right_transform = amount_match.get('right', {}).get('numberTransform')
-                
+
                 if left_transform and left_transform.get('enabled'):
                     thousand_sep = left_transform.get('thousandSeparator', ',')
                     decimal_sep = left_transform.get('decimalSeparator', '.')
@@ -773,7 +837,7 @@ class GenericMatchingEngine:
                     ).values
                 else:
                     left_amounts = pd.to_numeric(left_raw, errors='coerce').fillna(0).values
-                
+
                 if right_transform and right_transform.get('enabled'):
                     thousand_sep = right_transform.get('thousandSeparator', ',')
                     decimal_sep = right_transform.get('decimalSeparator', '.')
@@ -782,10 +846,12 @@ class GenericMatchingEngine:
                     ).values
                 else:
                     right_amounts = pd.to_numeric(right_raw, errors='coerce').fillna(0).values
-                
+
                 # Calculate difference
                 diff = np.abs(left_amounts - right_amounts)
                 results.loc[matched_mask, 'amount_diff'] = diff
+                results.loc[matched_mask, '_debug_left_amount'] = left_amounts
+                results.loc[matched_mask, '_debug_right_amount'] = right_amounts
                 
                 # Update status for mismatches
                 mismatch_mask = matched_mask & (results['amount_diff'] > tolerance)
@@ -924,27 +990,32 @@ class GenericMatchingEngine:
         
         if not left_col_match or not right_col_match:
             results['amount_diff'] = 0
+            results['_debug_left_amount'] = None
+            results['_debug_right_amount'] = None
             return results
-        
+
         left_col = left_col_match.group(1)
         right_col = right_col_match.group(1)
         tolerance = float(tolerance_match.group(1)) if tolerance_match else 0.01
-        
-        matched_mask = results[f'{right_name}_index'].notna()
+
+        # Both sides must have valid indices (important for OUTER join)
+        matched_mask = results[f'{left_name}_index'].notna() & results[f'{right_name}_index'].notna()
         results['amount_diff'] = None
-        
+        results['_debug_left_amount'] = None
+        results['_debug_right_amount'] = None
+
         if matched_mask.any():
             left_indices = results.loc[matched_mask, f'{left_name}_index'].astype(int).values
             right_indices = results.loc[matched_mask, f'{right_name}_index'].astype(int).values
-            
+
             try:
                 left_raw = left_df.loc[left_indices, left_col]
                 right_raw = right_df.loc[right_indices, right_col]
-                
+
                 # Apply number transforms if configured
                 left_transform = amount_rule.get('left_number_transform')
                 right_transform = amount_rule.get('right_number_transform')
-                
+
                 if left_transform and left_transform.get('enabled'):
                     thousand_sep = left_transform.get('thousandSeparator', ',')
                     decimal_sep = left_transform.get('decimalSeparator', '.')
@@ -953,7 +1024,7 @@ class GenericMatchingEngine:
                     ).values
                 else:
                     left_amounts = pd.to_numeric(left_raw, errors='coerce').fillna(0).values
-                
+
                 if right_transform and right_transform.get('enabled'):
                     thousand_sep = right_transform.get('thousandSeparator', ',')
                     decimal_sep = right_transform.get('decimalSeparator', '.')
@@ -962,10 +1033,12 @@ class GenericMatchingEngine:
                     ).values
                 else:
                     right_amounts = pd.to_numeric(right_raw, errors='coerce').fillna(0).values
-                
+
                 # Calculate difference
                 diff = np.abs(left_amounts - right_amounts)
                 results.loc[matched_mask, 'amount_diff'] = diff
+                results.loc[matched_mask, '_debug_left_amount'] = left_amounts
+                results.loc[matched_mask, '_debug_right_amount'] = right_amounts
                 
                 # Update status for mismatches
                 mismatch_mask = matched_mask & (results['amount_diff'] > tolerance)

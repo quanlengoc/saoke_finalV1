@@ -138,15 +138,25 @@ export const reportsApi = {
     api.get(`/reports/preview/${batchId}/${fileType}`, { params }),
   downloadUrl: (batchId, fileType, format = 'csv') =>
     `/api/v2/reports/download/${batchId}/${fileType}?format=${format}`,
-  download: async (batchId, fileType, format = 'csv') => {
+  download: async (batchId, fileType, format = 'csv', statusFilter = null, filtersJson = null) => {
+    const params = { format }
+    if (filtersJson) params.filters = filtersJson
+    else if (statusFilter) params.status_filter = statusFilter
     const response = await api.get(`/reports/download/${batchId}/${fileType}`, {
-      params: { format },
+      params,
       responseType: 'blob'
     })
+    // Extract filename from Content-Disposition header if available
+    const contentDisposition = response.headers['content-disposition']
+    let filename = `${batchId}_${fileType}.${format}`
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[^;=\n]*=["']?([^"';\n]*)/)
+      if (match?.[1]) filename = decodeURIComponent(match[1])
+    }
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `${batchId}_${fileType}.${format}`)
+    link.setAttribute('download', filename)
     document.body.appendChild(link)
     link.click()
     link.remove()

@@ -22,6 +22,11 @@ import pandas as pd
 from app.models import PartnerServiceConfig, DataSourceConfig, WorkflowStep, OutputConfig
 from app.services.generic_matching_engine import GenericMatchingEngine, JoinType
 from app.services.data_loaders import DataLoaderFactory, DataLoaderResult
+from app.utils.transform_utils import (
+    normalize_number_string,
+    normalize_number_series_vectorized,
+    transform_extract_amount,
+)
 from app.core.logging_config import get_workflow_logger, BatchLogger
 
 
@@ -377,6 +382,7 @@ class WorkflowExecutor:
         # Log stats
         matched = (result_df['status'] == 'MATCHED').sum() if 'status' in result_df.columns else 0
         not_found = (result_df['status'] == 'NOT_FOUND').sum() if 'status' in result_df.columns else 0
+        right_only = (result_df['status'] == 'RIGHT_ONLY').sum() if 'status' in result_df.columns else 0
         
         # Get output columns config: prefer step.output_columns, fallback to output_config table
         step_output_cols = step.output_columns_list
@@ -426,8 +432,9 @@ class WorkflowExecutor:
         if step.is_final_output or (step.output_type == 'report'):
             self.outputs[step.output_name] = self.datasets[step.output_name.upper()]
         
-        self._log_step(step_name, "ok", 
-                       f"Completed: {len(result_df)} rows, MATCHED={matched}, NOT_FOUND={not_found}")
+        self._log_step(step_name, "ok",
+                       f"Completed: {len(result_df)} rows, MATCHED={matched}, NOT_FOUND={not_found}" +
+                       (f", RIGHT_ONLY={right_only}" if right_only > 0 else ""))
     
     def _get_dataset(self, source_name: str) -> pd.DataFrame:
         """Get dataset by name (from loaded data or intermediate results)"""
@@ -492,13 +499,17 @@ class WorkflowExecutor:
                            f"Built output {output_name}: {len(self.outputs[output_name])} rows")
     
     # Column name mapping for MATCH_STATUS / computed source type.
-    # The matching engine outputs: status, note, amount_diff.
+    # The matching engine outputs: status, note, amount_diff, _debug_* columns.
     # Users may configure columns as match_status, match_detail, etc.
     MATCH_STATUS_COLUMN_MAP = {
         'match_status': 'status',
         'final_status': 'status',
         'match_detail': 'note',
         'amount_difference': 'amount_diff',
+        'left_key': '_debug_left_key',
+        'right_key': '_debug_right_key',
+        'left_amount': '_debug_left_amount',
+        'right_amount': '_debug_right_amount',
     }
 
     def _apply_step_output_columns(self, df: pd.DataFrame, columns_list: list) -> pd.DataFrame:
@@ -606,15 +617,20 @@ class WorkflowExecutor:
                         group_cond = pd.Series(True, index=temp_df.index)
                         for cond_item in group:
                             ref_col = cond_item.get('column', '')
-                            ref_val = str(cond_item.get('value', ''))
-                            if ref_col in temp_df.columns:
-                                group_cond = group_cond & (temp_df[ref_col].astype(str) == ref_val)
-                            else:
+                            op = cond_item.get('op', 'eq')  # default: eq (backward compat)
+                            ref_val = cond_item.get('value', '')
+                            if ref_col not in temp_df.columns:
                                 self.logger.warning(
                                     f"EXPRESSION '{output_col_name}': referenced column '{ref_col}' "
                                     f"not found. Available: {list(temp_df.columns)}"
                                 )
                                 group_cond = group_cond & False
+                                continue
+                            col_series = temp_df[ref_col]
+                            cond_result = self._eval_expression_condition(
+                                col_series, op, ref_val, output_col_name, temp_df
+                            )
+                            group_cond = group_cond & cond_result
                         overall_cond = overall_cond | group_cond
                     
                     conditions.append(overall_cond.values)
@@ -629,6 +645,92 @@ class WorkflowExecutor:
         if result_cols:
             return pd.DataFrame(result_cols)
         return df
+
+    def _eval_expression_condition(
+        self, col_series: pd.Series, op: str, ref_val: Any,
+        expr_name: str, temp_df: pd.DataFrame
+    ) -> pd.Series:
+        """Evaluate a single condition for EXPRESSION column rules.
+
+        Supported operators:
+            eq       : equals (string comparison)
+            ne / !=  : not equals
+            gt / >   : greater than (numeric)
+            lt / <   : less than (numeric)
+            gte / >= : greater than or equal (numeric)
+            lte / <= : less than or equal (numeric)
+            contains : string contains (case-insensitive)
+            is_empty : value is empty/null/NaN
+            is_not_empty : value is not empty/null/NaN
+            func     : evaluate a Python expression (like matching engine)
+        """
+        idx = col_series.index
+        try:
+            if op in ('is_not_empty', 'not_empty'):
+                str_vals = col_series.astype(str).str.strip()
+                return (col_series.notna()) & (str_vals != '') & (str_vals != 'nan') & (str_vals != 'None')
+
+            if op in ('is_empty', 'empty'):
+                str_vals = col_series.astype(str).str.strip()
+                return (col_series.isna()) | (str_vals == '') | (str_vals == 'nan') | (str_vals == 'None')
+
+            ref_val_str = str(ref_val) if ref_val is not None else ''
+
+            if op in ('eq', '=', '==', ''):
+                return col_series.astype(str) == ref_val_str
+
+            if op in ('ne', '!='):
+                return col_series.astype(str) != ref_val_str
+
+            if op in ('contains', 'like'):
+                return col_series.astype(str).str.contains(ref_val_str, case=False, na=False)
+
+            if op in ('gt', '>'):
+                numeric_col = pd.to_numeric(col_series, errors='coerce')
+                return numeric_col > float(ref_val)
+
+            if op in ('lt', '<'):
+                numeric_col = pd.to_numeric(col_series, errors='coerce')
+                return numeric_col < float(ref_val)
+
+            if op in ('gte', '>='):
+                numeric_col = pd.to_numeric(col_series, errors='coerce')
+                return numeric_col >= float(ref_val)
+
+            if op in ('lte', '<='):
+                numeric_col = pd.to_numeric(col_series, errors='coerce')
+                return numeric_col <= float(ref_val)
+
+            if op == 'func':
+                # Evaluate Python expression — same context as matching engine
+                # ref_val contains the expression string, e.g.: COL.str.len() > 5
+                # COL is the current column series
+                local_vars = {
+                    'COL': col_series,
+                    'normalize_number': normalize_number_series_vectorized,
+                    'normalize_number_string': normalize_number_string,
+                    'transform_extract_amount': transform_extract_amount,
+                    'pd': pd,
+                    'np': np,
+                }
+                # Also inject all temp_df columns as variables
+                for c in temp_df.columns:
+                    safe_name = c.replace(' ', '_').replace('-', '_')
+                    local_vars[safe_name] = temp_df[c]
+                    local_vars[c] = temp_df[c]  # original name too
+
+                result = eval(ref_val_str, local_vars)
+                if isinstance(result, pd.Series):
+                    return result.astype(bool)
+                return pd.Series(bool(result), index=idx)
+
+            # Unknown operator — fallback to eq
+            self.logger.warning(f"EXPRESSION '{expr_name}': unknown operator '{op}', fallback to eq")
+            return col_series.astype(str) == ref_val_str
+
+        except Exception as e:
+            self.logger.error(f"EXPRESSION '{expr_name}': condition eval failed (op={op}): {e}")
+            return pd.Series(False, index=idx)
 
     def _apply_output_columns(self, df: pd.DataFrame, columns_config: Dict[str, Any]) -> pd.DataFrame:
         """Apply output column configuration from output_config table (legacy format).

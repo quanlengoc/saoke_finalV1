@@ -57,67 +57,306 @@ const formatTimestamp = (isoString) => {
  */
 function OutputDetailSection({ outputName, batchId, outputStats }) {
   const [page, setPage] = useState(0)
-  const [filters, setFilters] = useState({}) // {col_name: selected_value}
+  // draftFilters = what user is currently typing (not yet applied)
+  // appliedFilters = what's actually sent to the API (applied on button click)
+  const [draftFilters, setDraftFilters] = useState({})
+  const [appliedFilters, setAppliedFilters] = useState({})
+  const [wrapText, setWrapText] = useState(false)
   const pageSize = 50
-  
-  // Filter columns come from outputStats.filter_columns (only status cols, no detail/note)
+
+  // Filter columns come from outputStats.filter_columns
   const filterColumns = outputStats?.filter_columns || {}
-  
-  // Build query params including filters
+
+  // Detect if filter_columns uses new format (object with type) or old format (array of values)
+  const isNewFilterFormat = (colConfig) => {
+    return colConfig && typeof colConfig === 'object' && !Array.isArray(colConfig) && colConfig.type
+  }
+
+  // Helper: extract active filters from a filter state object
+  const extractActiveFilters = (filterState) => {
+    return Object.entries(filterState)
+      .filter(([, f]) => {
+        if (typeof f === 'string') return !!f
+        return f && (f.value || f.min != null || f.max != null)
+      })
+      .map(([col, f]) => {
+        if (typeof f === 'string') return { col, op: 'eq', value: f }
+        return { col, ...f }
+      })
+      .filter(f => f.value || f.min != null || f.max != null)
+  }
+
+  // Build query params using appliedFilters (not draft)
   const buildPreviewParams = () => {
     const params = { skip: page * pageSize, limit: pageSize }
-    // Find first active filter and send as status_filter
-    const activeFilter = Object.entries(filters).find(([, v]) => v)
-    if (activeFilter) {
-      params.status_filter = `${activeFilter[0]}=${activeFilter[1]}`
+    const activeFilters = extractActiveFilters(appliedFilters)
+    if (activeFilters.length > 0) {
+      params.filters = JSON.stringify(activeFilters)
     }
     return params
   }
-  
+
   const { data: previewData } = useQuery({
-    queryKey: ['preview', batchId, outputName.toLowerCase(), page, filters],
+    queryKey: ['preview', batchId, outputName.toLowerCase(), page, appliedFilters],
     queryFn: () => reportsApi.preview(batchId, outputName.toLowerCase(), buildPreviewParams()),
     enabled: !!batchId,
   })
-  
+
   const preview = previewData?.data
   const total = outputStats?.total ?? preview?.total ?? 0
-  
-  // Collect all status breakdowns from outputStats
+
+  // Collect all status breakdowns from outputStats (skip those with >20 values — too many for badges)
   const statusBreakdowns = outputStats
-    ? Object.entries(outputStats).filter(([k]) => k.startsWith('by_'))
+    ? Object.entries(outputStats).filter(([k, v]) => k.startsWith('by_') && typeof v === 'object' && Object.keys(v).length <= 20)
     : []
-  
+
+  // Check if any filter is applied
+  const hasActiveFilters = extractActiveFilters(appliedFilters).length > 0
+  // Check if draft differs from applied (user changed something but hasn't searched yet)
+  const hasDraftChanges = JSON.stringify(draftFilters) !== JSON.stringify(appliedFilters)
+
+  // Build filters JSON for download
+  const buildDownloadFilters = () => {
+    const activeFilters = extractActiveFilters(appliedFilters)
+    return activeFilters.length > 0 ? JSON.stringify(activeFilters) : null
+  }
+
+  // Apply filters (triggered by Search button or Enter key)
+  const applyFilters = () => {
+    setAppliedFilters({ ...draftFilters })
+    setPage(0)
+  }
+
+  // Clear all filters
+  const clearFilters = () => {
+    setDraftFilters({})
+    setAppliedFilters({})
+    setPage(0)
+  }
+
+  // Handle Enter key in filter inputs
+  const handleFilterKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      applyFilters()
+    }
+  }
+
+  // Update a draft filter value (does NOT trigger API call)
+  const updateFilter = (colName, filterData) => {
+    setDraftFilters(prev => ({ ...prev, [colName]: filterData }))
+  }
+
+  // Render filter control based on data type
+  const renderFilterControl = (colName, colConfig) => {
+    // Old format: colConfig is an array of string values
+    if (Array.isArray(colConfig)) {
+      return (
+        <div key={colName} className="flex items-center gap-2">
+          <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
+          <select
+            value={draftFilters[colName] || ''}
+            onChange={(e) => updateFilter(colName, e.target.value)}
+            className="px-2 py-1 border rounded text-xs min-w-[120px]"
+          >
+            <option value="">Tất cả</option>
+            {colConfig.map(val => (
+              <option key={val} value={val}>{val}</option>
+            ))}
+          </select>
+        </div>
+      )
+    }
+
+    // New format: colConfig is {type, values?, min?, max?}
+    if (!isNewFilterFormat(colConfig)) return null
+
+    const filterState = draftFilters[colName] || {}
+
+    switch (colConfig.type) {
+      case 'string': {
+        // Dropdown if ≤ 20 values, otherwise text input with operator
+        if (colConfig.values && colConfig.values.length <= 20) {
+          return (
+            <div key={colName} className="flex items-center gap-2">
+              <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
+              <select
+                value={filterState.value || ''}
+                onChange={(e) => updateFilter(colName, e.target.value ? { op: 'eq', value: e.target.value } : {})}
+                className="px-2 py-1 border rounded text-xs min-w-[120px]"
+              >
+                <option value="">Tất cả</option>
+                {colConfig.values.map(val => {
+                  const byKey = `by_${colName}`
+                  const count = outputStats?.[byKey]?.[val]
+                  return (
+                    <option key={val} value={val}>{val}{count != null ? ` (${count})` : ''}</option>
+                  )
+                })}
+              </select>
+            </div>
+          )
+        }
+        // Text input with operator for many values
+        return (
+          <div key={colName} className="flex items-center gap-1">
+            <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
+            <select
+              value={filterState.op || 'eq'}
+              onChange={(e) => updateFilter(colName, { ...filterState, op: e.target.value })}
+              className="px-1 py-1 border rounded text-xs w-16"
+            >
+              <option value="eq">=</option>
+              <option value="like">Chứa</option>
+            </select>
+            <input
+              type="text"
+              value={filterState.value || ''}
+              onChange={(e) => updateFilter(colName, e.target.value ? { op: filterState.op || 'eq', value: e.target.value } : {})}
+              onKeyDown={handleFilterKeyDown}
+              placeholder="Nhập giá trị..."
+              className="px-2 py-1 border rounded text-xs w-32"
+            />
+          </div>
+        )
+      }
+
+      case 'number': {
+        return (
+          <div key={colName} className="flex items-center gap-1">
+            <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
+            <input
+              type="number"
+              value={filterState.min ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                updateFilter(colName, {
+                  op: 'range',
+                  min: val !== '' ? Number(val) : null,
+                  max: filterState.max ?? null,
+                })
+              }}
+              onKeyDown={handleFilterKeyDown}
+              placeholder={colConfig.min != null ? `Min (${colConfig.min})` : 'Min'}
+              className="px-2 py-1 border rounded text-xs w-28"
+            />
+            <span className="text-xs text-gray-400">-</span>
+            <input
+              type="number"
+              value={filterState.max ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                updateFilter(colName, {
+                  op: 'range',
+                  min: filterState.min ?? null,
+                  max: val !== '' ? Number(val) : null,
+                })
+              }}
+              onKeyDown={handleFilterKeyDown}
+              placeholder={colConfig.max != null ? `Max (${colConfig.max})` : 'Max'}
+              className="px-2 py-1 border rounded text-xs w-28"
+            />
+          </div>
+        )
+      }
+
+      case 'date': {
+        return (
+          <div key={colName} className="flex items-center gap-1">
+            <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
+            <input
+              type="date"
+              value={filterState.min || ''}
+              onChange={(e) => {
+                updateFilter(colName, {
+                  op: 'range',
+                  min: e.target.value || null,
+                  max: filterState.max ?? null,
+                })
+              }}
+              onKeyDown={handleFilterKeyDown}
+              className="px-2 py-1 border rounded text-xs"
+              title={colConfig.min ? `Từ ${colConfig.min}` : 'Từ ngày'}
+            />
+            <span className="text-xs text-gray-400">-</span>
+            <input
+              type="date"
+              value={filterState.max || ''}
+              onChange={(e) => {
+                updateFilter(colName, {
+                  op: 'range',
+                  min: filterState.min ?? null,
+                  max: e.target.value || null,
+                })
+              }}
+              onKeyDown={handleFilterKeyDown}
+              className="px-2 py-1 border rounded text-xs"
+              title={colConfig.max ? `Đến ${colConfig.max}` : 'Đến ngày'}
+            />
+          </div>
+        )
+      }
+
+      case 'boolean': {
+        return (
+          <div key={colName} className="flex items-center gap-2">
+            <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
+            <select
+              value={filterState.value || ''}
+              onChange={(e) => updateFilter(colName, e.target.value ? { op: 'eq', value: e.target.value } : {})}
+              className="px-2 py-1 border rounded text-xs min-w-[100px]"
+            >
+              <option value="">Tất cả</option>
+              {(colConfig.values || ['true', 'false']).map(val => (
+                <option key={val} value={val}>{val}</option>
+              ))}
+            </select>
+          </div>
+        )
+      }
+
+      default:
+        return null
+    }
+  }
+
   return (
     <div className="border rounded-lg p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-medium text-gray-700 flex items-center gap-2">
           <span className="text-blue-500">📄</span> Chi tiết {outputName} ({total.toLocaleString()} bản ghi)
+          {hasActiveFilters && <span className="text-xs text-orange-600 font-normal ml-1">(Đang lọc)</span>}
         </h3>
         <div className="flex gap-2">
           <button
-            onClick={() => reportsApi.download(batchId, outputName.toLowerCase(), 'csv').catch(() => toast.error('Lỗi tải file CSV'))}
+            onClick={() => reportsApi.download(batchId, outputName.toLowerCase(), 'csv', null, buildDownloadFilters()).catch(() => toast.error('Lỗi tải file CSV'))}
             className="px-3 py-1 border rounded text-xs hover:bg-gray-50"
           >
-            📥 CSV
+            {hasActiveFilters ? '📥 CSV (lọc)' : '📥 CSV'}
           </button>
           <button
-            onClick={() => reportsApi.download(batchId, outputName.toLowerCase(), 'xlsx').catch(() => toast.error('Lỗi tải file Excel'))}
+            onClick={() => reportsApi.download(batchId, outputName.toLowerCase(), 'xlsx', null, buildDownloadFilters()).catch(() => toast.error('Lỗi tải file Excel'))}
             className="px-3 py-1 border rounded text-xs hover:bg-gray-50"
           >
-            📥 Excel
+            {hasActiveFilters ? '📥 Excel (lọc)' : '📥 Excel'}
+          </button>
+          <button
+            onClick={() => setWrapText(!wrapText)}
+            className={`px-3 py-1 border rounded text-xs hover:bg-gray-50 ${wrapText ? 'bg-blue-100 border-blue-300 text-blue-700' : ''}`}
+          >
+            {wrapText ? '↩ Wrap ON' : '↩ Wrap OFF'}
           </button>
         </div>
       </div>
-      
+
       {/* Status breakdown badges */}
       {statusBreakdowns.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {statusBreakdowns.map(([key, counts]) => 
+          {statusBreakdowns.map(([key, counts]) =>
             Object.entries(counts).map(([st, count]) => (
               <span key={`${key}_${st}`} className={`px-2 py-1 rounded text-xs ${
                 st.includes('MATCHED') || st.includes('OK') ? 'bg-green-100 text-green-700' :
                 st.includes('NOT') ? 'bg-red-100 text-red-700' :
+                st.includes('RIGHT_ONLY') ? 'bg-purple-100 text-purple-700' :
                 st.includes('MISMATCH') || st.includes('ERROR') ? 'bg-orange-100 text-orange-700' :
                 'bg-gray-100 text-gray-700'
               }`}>
@@ -127,40 +366,38 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
           )}
         </div>
       )}
-      
+
       {/* Dynamic filters (for outputs that have filter columns) */}
       {filterColumns && Object.keys(filterColumns).length > 0 && (
-        <div className="mb-4 flex items-center gap-4 flex-wrap bg-gray-50 p-3 rounded-lg">
-          <span className="text-sm font-medium text-gray-600">🔍 Lọc:</span>
-          {Object.entries(filterColumns).map(([colName, values]) => (
-            <div key={colName} className="flex items-center gap-2">
-              <label className="text-xs text-gray-600 font-medium">{colName}:</label>
-              <select 
-                value={filters[colName] || ''} 
-                onChange={(e) => { 
-                  setFilters(prev => ({ ...prev, [colName]: e.target.value }))
-                  setPage(0)
-                }}
-                className="px-2 py-1 border rounded text-xs"
-              >
-                <option value="">Tất cả</option>
-                {values.map(val => (
-                  <option key={val} value={val}>{val}</option>
-                ))}
-              </select>
-            </div>
-          ))}
-          {Object.values(filters).some(v => v) && (
-            <button 
-              onClick={() => { setFilters({}); setPage(0); }}
-              className="text-xs text-blue-600 hover:underline"
+        <div className="mb-4 flex items-center gap-3 flex-wrap bg-gray-50 p-3 rounded-lg">
+          <span className="text-sm font-medium text-gray-600 flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            Lọc:
+          </span>
+          {Object.entries(filterColumns).map(([colName, colConfig]) =>
+            renderFilterControl(colName, colConfig)
+          )}
+          <button
+            onClick={applyFilters}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              hasDraftChanges
+                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+            }`}
+          >
+            Tìm kiếm
+          </button>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
             >
-              Xóa bộ lọc
+              Xóa lọc
             </button>
           )}
         </div>
       )}
-      
+
       {/* Data table */}
       <div className="overflow-x-auto max-h-96 border rounded">
         {preview ? (
@@ -179,7 +416,7 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
                 {preview.data?.map((row, idx) => (
                   <tr key={idx} className="hover:bg-gray-50">
                     {preview.columns?.map((col) => (
-                      <td key={col} className="px-3 py-2 whitespace-nowrap max-w-xs truncate">
+                      <td key={col} className={`px-3 py-2 ${wrapText ? 'whitespace-pre-wrap break-words max-w-md' : 'whitespace-nowrap max-w-xs truncate'}`} title={String(row[col] ?? '')}>
                         {row[col]}
                       </td>
                     ))}

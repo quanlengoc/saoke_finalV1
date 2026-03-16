@@ -4,8 +4,10 @@ Preview results, download files, generate reports
 """
 
 import os
+import json
 import logging
-from typing import Any
+import tempfile
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse
@@ -19,6 +21,89 @@ from app.services.report_generator import ReportGenerator
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# =============================================================================
+# Filter helpers
+# =============================================================================
+
+def _detect_column_type(series: pd.Series) -> str:
+    """Auto-detect data type from pandas Series."""
+    if pd.api.types.is_numeric_dtype(series):
+        return "number"
+    # Try date parsing
+    try:
+        sample = series.dropna().head(100)
+        if len(sample) > 0:
+            parsed = pd.to_datetime(sample, errors='coerce')
+            if parsed.notna().sum() > len(parsed) * 0.5:
+                return "date"
+    except Exception:
+        pass
+    # Check boolean-like (only 2 unique values like true/false, 0/1, yes/no)
+    unique = series.dropna().unique()
+    if len(unique) <= 2:
+        lower_vals = {str(v).lower() for v in unique}
+        if lower_vals <= {'true', 'false', '0', '1', 'yes', 'no', 't', 'f'}:
+            return "boolean"
+    return "string"
+
+
+def parse_filters(filters_param: str = None, status_filter: str = None) -> list:
+    """Parse filter params → list of filter dicts.
+
+    New format: filters_param = JSON array of {col, op, value, min, max}
+    Legacy format: status_filter = "col_name=value"
+    """
+    if filters_param:
+        try:
+            return json.loads(filters_param)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    if status_filter and '=' in status_filter:
+        col, val = status_filter.split('=', 1)
+        return [{"col": col.strip(), "op": "eq", "value": val.strip()}]
+    return []
+
+
+def apply_filters(chunk: pd.DataFrame, filters: list) -> pd.DataFrame:
+    """Apply all filters to a DataFrame chunk. Returns filtered chunk."""
+    if not filters:
+        return chunk
+    mask = pd.Series(True, index=chunk.index)
+    for f in filters:
+        col = f.get("col", "")
+        op = f.get("op", "eq")
+        # Case-insensitive column lookup
+        col_map = {c.lower(): c for c in chunk.columns}
+        actual_col = col_map.get(col.lower())
+        if not actual_col:
+            continue
+        if op == "eq":
+            mask &= chunk[actual_col].astype(str).str.upper() == str(f.get("value", "")).upper()
+        elif op == "like":
+            mask &= chunk[actual_col].astype(str).str.upper().str.contains(
+                str(f.get("value", "")).upper(), na=False
+            )
+        elif op == "range":
+            # Try numeric range first
+            series = pd.to_numeric(chunk[actual_col], errors='coerce')
+            if series.isna().all():
+                # Try date range
+                series = pd.to_datetime(chunk[actual_col], errors='coerce')
+            if f.get("min") is not None and str(f["min"]) != "":
+                try:
+                    min_val = pd.to_datetime(f["min"]) if hasattr(series.dtype, 'tz') or str(series.dtype).startswith('datetime') else float(f["min"])
+                    mask &= series >= min_val
+                except (ValueError, TypeError):
+                    pass
+            if f.get("max") is not None and str(f["max"]) != "":
+                try:
+                    max_val = pd.to_datetime(f["max"]) if hasattr(series.dtype, 'tz') or str(series.dtype).startswith('datetime') else float(f["max"])
+                    mask &= series <= max_val
+                except (ValueError, TypeError):
+                    pass
+    return chunk[mask]
 
 
 def check_user_permission(
@@ -40,13 +125,23 @@ def check_user_permission(
     return permission is not None
 
 
+def _get_csv_line_count(file_path: str) -> int:
+    """Count lines in CSV file without loading into memory. O(1) memory."""
+    count = -1  # exclude header
+    with open(file_path, 'r', encoding='utf-8-sig') as f:
+        for _ in f:
+            count += 1
+    return max(count, 0)
+
+
 @router.get("/preview/{batch_id}/{file_type}")
 async def preview_results(
     batch_id: str,
     file_type: str,
     skip: int = 0,
     limit: int = 100,
-    status_filter: str = Query(default=None, description="Generic filter: col_name=value (e.g., match_status=MATCHED)"),
+    status_filter: str = Query(default=None, description="Legacy filter: col_name=value"),
+    filters: str = Query(default=None, description="JSON array of filter objects: [{col, op, value, min, max}]"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Any:
@@ -54,7 +149,8 @@ async def preview_results(
     Preview reconciliation results for any output type.
 
     file_type: output name (e.g., any configured output name)
-    status_filter: generic filter "col_name=value" for any status column
+    filters: JSON array [{col, op, value, min, max}] — supports eq, like, range
+    status_filter: legacy filter "col_name=value" (backward compat)
     Returns paginated JSON data
     """
     batch = db.query(ReconciliationLog).filter(
@@ -82,28 +178,66 @@ async def preview_results(
         )
 
     try:
-        df = pd.read_csv(file_path, encoding="utf-8-sig")
+        # Parse filters (new JSON format or legacy status_filter)
+        active_filters = parse_filters(filters, status_filter)
+        has_filter = len(active_filters) > 0
 
-        df_columns_lower = {c.lower(): c for c in df.columns}
+        if not has_filter:
+            # === CASE 1: No filter — efficient seek-based pagination ===
+            header = pd.read_csv(file_path, nrows=0, encoding="utf-8-sig")
+            columns = list(header.columns)
 
-        # Generic status filter: "col_name=value" for any status column
-        if status_filter and '=' in status_filter:
-            filter_col, filter_val = status_filter.split('=', 1)
-            filter_col_lower = filter_col.strip().lower()
-            if filter_col_lower in df_columns_lower:
-                actual_col = df_columns_lower[filter_col_lower]
-                df = df[df[actual_col].astype(str).str.upper() == filter_val.strip().upper()]
+            if skip > 0:
+                df_page = pd.read_csv(
+                    file_path, skiprows=range(1, skip + 1),
+                    nrows=limit, encoding="utf-8-sig"
+                )
+            else:
+                df_page = pd.read_csv(
+                    file_path, nrows=limit, encoding="utf-8-sig"
+                )
 
-        total = len(df)
-        df_page = df.iloc[skip:skip + limit]
+            total = _get_csv_line_count(file_path)
 
-        return {
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-            "columns": list(df_page.columns),
-            "data": df_page.fillna("").to_dict(orient="records")
-        }
+            return {
+                "total": total,
+                "skip": skip,
+                "limit": limit,
+                "columns": columns,
+                "data": df_page.fillna("").to_dict(orient="records")
+            }
+        else:
+            # === CASE 2: With filter — chunked reading ===
+            collected_rows = []
+            total_matched = 0
+            skipped = 0
+            columns = None
+
+            for chunk in pd.read_csv(file_path, chunksize=50000, encoding="utf-8-sig"):
+                if columns is None:
+                    columns = list(chunk.columns)
+
+                filtered = apply_filters(chunk, active_filters)
+                total_matched += len(filtered)
+
+                # Collect rows for the requested page
+                if len(collected_rows) < limit:
+                    for _, row in filtered.iterrows():
+                        if skipped < skip:
+                            skipped += 1
+                            continue
+                        if len(collected_rows) < limit:
+                            collected_rows.append(row)
+
+            df_page = pd.DataFrame(collected_rows, columns=columns) if collected_rows else pd.DataFrame(columns=columns or [])
+
+            return {
+                "total": total_matched,
+                "skip": skip,
+                "limit": limit,
+                "columns": columns or [],
+                "data": df_page.fillna("").to_dict(orient="records")
+            }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -116,6 +250,8 @@ async def download_file(
     batch_id: str,
     file_type: str,
     format: str = Query(default="csv"),
+    status_filter: Optional[str] = Query(default=None),
+    filters: Optional[str] = Query(default=None, description="JSON array of filter objects"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -123,6 +259,8 @@ async def download_file(
     Download reconciliation result file.
     file_type: any output name or "report"
     format: "csv" or "xlsx"
+    filters: JSON array [{col, op, value, min, max}] — new multi-filter format
+    status_filter: legacy filter "column_name=value" (backward compat)
     """
     batch = db.query(ReconciliationLog).filter(
         ReconciliationLog.batch_id == batch_id
@@ -147,6 +285,65 @@ async def download_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{file_type.upper()} file not found"
         )
+
+    # Parse filters (new JSON format or legacy status_filter)
+    active_filters = parse_filters(filters, status_filter)
+
+    # If filters are active, use chunked reading to filter without loading all into RAM
+    if active_filters and file_path.endswith(".csv"):
+        try:
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            suffix = "_filtered"
+
+            # Chunked filter + write to temp CSV
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=".csv",
+                dir=os.path.dirname(file_path)
+            )
+            tmp_path = tmp.name
+            tmp.close()
+
+            first_chunk = True
+            has_data = False
+            for chunk in pd.read_csv(file_path, chunksize=50000, encoding="utf-8-sig"):
+                filtered = apply_filters(chunk, active_filters)
+                if not filtered.empty:
+                    filtered.to_csv(
+                        tmp_path, mode='a', header=first_chunk,
+                        index=False, encoding="utf-8-sig"
+                    )
+                    first_chunk = False
+                    has_data = True
+
+            if has_data:
+                if format == "xlsx":
+                    xlsx_tmp = tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".xlsx",
+                        dir=os.path.dirname(file_path)
+                    )
+                    xlsx_tmp_path = xlsx_tmp.name
+                    xlsx_tmp.close()
+                    df_filtered = pd.read_csv(tmp_path, encoding="utf-8-sig")
+                    df_filtered.to_excel(xlsx_tmp_path, index=False)
+                    os.unlink(tmp_path)
+                    return FileResponse(
+                        path=xlsx_tmp_path,
+                        filename=f"{base_name}{suffix}.xlsx",
+                        media_type="application/octet-stream",
+                        background=None
+                    )
+                else:
+                    return FileResponse(
+                        path=tmp_path,
+                        filename=f"{base_name}{suffix}.csv",
+                        media_type="application/octet-stream",
+                        background=None
+                    )
+            else:
+                os.unlink(tmp_path)
+        except Exception as e:
+            logger.warning(f"Failed to apply filters: {e}")
+            # Fall through to download full file
 
     if format == "xlsx" and file_path.endswith(".csv"):
         xlsx_path = file_path.replace(".csv", ".xlsx")
@@ -340,24 +537,85 @@ async def get_batch_stats(
         except:
             pass
 
-    # Dynamic output stats from file_results
-    output_stats = {}
-    for output_name, output_path in batch.file_results_dict.items():
-        if output_path and os.path.exists(output_path):
-            try:
-                df_out = pd.read_csv(output_path, encoding="utf-8-sig")
-                out_stat = {"total": len(df_out), "filter_columns": {}}
-                for col in df_out.columns:
-                    col_lower = col.lower()
-                    if ('status' in col_lower) and ('detail' not in col_lower) and ('note' not in col_lower):
-                        value_counts = df_out[col].value_counts().to_dict()
-                        out_stat[f"by_{col}"] = value_counts
-                        out_stat["filter_columns"][col] = list(value_counts.keys())
-                if output_name.upper().startswith('A2') and 'source' in df_out.columns:
-                    out_stat["by_source"] = df_out["source"].value_counts().to_dict()
-                output_stats[output_name] = out_stat
-            except:
-                pass
+    # Use pre-computed output_stats from summary_stats (computed during workflow execution)
+    output_stats = stats.get("output_stats", {})
+
+    # Fallback: read CSV for old batches that don't have pre-computed output_stats
+    if not output_stats:
+        # Try to get config for filterable column lookup
+        fallback_config = None
+        if batch.config_id:
+            fallback_config = db.query(PartnerServiceConfig).filter(
+                PartnerServiceConfig.id == batch.config_id
+            ).first()
+
+        for output_name, output_path in batch.file_results_dict.items():
+            if output_path and os.path.exists(output_path):
+                try:
+                    df_out = pd.read_csv(output_path, encoding="utf-8-sig")
+                    out_stat = {"total": len(df_out), "filter_columns": {}}
+
+                    # Try config-driven filterable columns
+                    filterable_cols = []
+                    if fallback_config:
+                        step_map = {s.output_name.upper(): s for s in (fallback_config.workflow_steps or [])}
+                        step = step_map.get(output_name.upper())
+                        if step:
+                            cols_list = step.output_columns_list if hasattr(step, 'output_columns_list') else []
+                            filterable_cols = [c for c in cols_list if c.get("filterable")]
+
+                    # ALWAYS include match_status and other status columns (default badges + filter)
+                    for col in df_out.columns:
+                        col_lower = col.lower()
+                        if ('status' in col_lower) and ('detail' not in col_lower) and ('note' not in col_lower):
+                            value_counts = df_out[col].value_counts().to_dict()
+                            out_stat[f"by_{col}"] = {str(k): int(v) for k, v in value_counts.items()}
+                            out_stat["filter_columns"][col] = [str(k) for k in value_counts.keys()]
+
+                    # Additional filterable columns from config
+                    if filterable_cols:
+                        for col_cfg in filterable_cols:
+                            col_name = col_cfg.get("display_name") or col_cfg.get("column_name")
+                            if not col_name or col_name not in df_out.columns:
+                                continue
+                            if col_name in out_stat["filter_columns"]:
+                                continue
+                            data_type = _detect_column_type(df_out[col_name])
+                            if data_type == "string":
+                                vc = df_out[col_name].value_counts().to_dict()
+                                values_list = [str(k) for k in vc.keys()]
+                                out_stat["filter_columns"][col_name] = {
+                                    "type": "string",
+                                    "values": values_list
+                                }
+                                if len(values_list) <= 20:
+                                    out_stat[f"by_{col_name}"] = {str(k): int(v) for k, v in vc.items()}
+                            elif data_type == "number":
+                                s = pd.to_numeric(df_out[col_name], errors='coerce')
+                                out_stat["filter_columns"][col_name] = {
+                                    "type": "number",
+                                    "min": float(s.min()) if not s.isna().all() else None,
+                                    "max": float(s.max()) if not s.isna().all() else None,
+                                }
+                            elif data_type == "date":
+                                s = pd.to_datetime(df_out[col_name], errors='coerce')
+                                out_stat["filter_columns"][col_name] = {
+                                    "type": "date",
+                                    "min": str(s.min().date()) if not s.isna().all() else None,
+                                    "max": str(s.max().date()) if not s.isna().all() else None,
+                                }
+                            elif data_type == "boolean":
+                                vc = df_out[col_name].astype(str).value_counts().to_dict()
+                                out_stat["filter_columns"][col_name] = {
+                                    "type": "boolean",
+                                    "values": [str(k) for k in vc.keys()]
+                                }
+
+                    if 'source' in df_out.columns:
+                        out_stat["by_source"] = {str(k): int(v) for k, v in df_out["source"].value_counts().to_dict().items()}
+                    output_stats[output_name] = out_stat
+                except Exception:
+                    pass
 
     # Get final status options from config's workflow steps
     config = None
