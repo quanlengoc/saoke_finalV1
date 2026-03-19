@@ -64,26 +64,19 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
   const [wrapText, setWrapText] = useState(false)
   const pageSize = 50
 
-  // Filter columns come from outputStats.filter_columns
-  const filterColumns = outputStats?.filter_columns || {}
-
-  // Detect if filter_columns uses new format (object with type) or old format (array of values)
-  const isNewFilterFormat = (colConfig) => {
-    return colConfig && typeof colConfig === 'object' && !Array.isArray(colConfig) && colConfig.type
-  }
-
   // Helper: extract active filters from a filter state object
   const extractActiveFilters = (filterState) => {
     return Object.entries(filterState)
-      .filter(([, f]) => {
+      .filter(([k, f]) => {
+        if (k.startsWith('_open_')) return false // skip UI state keys
         if (typeof f === 'string') return !!f
-        return f && (f.value || f.min != null || f.max != null)
+        return f && (f.value || f.values?.length > 0 || f.min != null || f.max != null)
       })
       .map(([col, f]) => {
         if (typeof f === 'string') return { col, op: 'eq', value: f }
         return { col, ...f }
       })
-      .filter(f => f.value || f.min != null || f.max != null)
+      .filter(f => f.value || f.values?.length > 0 || f.min != null || f.max != null)
   }
 
   // Build query params using appliedFilters (not draft)
@@ -96,14 +89,24 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
     return params
   }
 
-  const { data: previewData } = useQuery({
+  // Preview data — read CSV page (on first page, also returns filter_column_types)
+  const { data: previewData, isLoading: isPreviewLoading, isFetching: isPreviewFetching } = useQuery({
     queryKey: ['preview', batchId, outputName.toLowerCase(), page, appliedFilters],
     queryFn: () => reportsApi.preview(batchId, outputName.toLowerCase(), buildPreviewParams()),
     enabled: !!batchId,
+    keepPreviousData: true,
   })
 
   const preview = previewData?.data
   const total = outputStats?.total ?? preview?.total ?? 0
+
+  // Filter columns come from outputStats.filter_columns
+  const filterColumns = outputStats?.filter_columns || {}
+
+  // Detect if filter_columns uses new format (object with type) or old format (array of values)
+  const isNewFilterFormat = (colConfig) => {
+    return colConfig && typeof colConfig === 'object' && !Array.isArray(colConfig) && colConfig.type
+  }
 
   // Collect all status breakdowns from outputStats (skip those with >20 values — too many for badges)
   const statusBreakdowns = outputStats
@@ -148,21 +151,67 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
 
   // Render filter control based on data type
   const renderFilterControl = (colName, colConfig) => {
-    // Old format: colConfig is an array of string values
+    // Old format: colConfig is an array of string values → multi-select checkboxes
     if (Array.isArray(colConfig)) {
+      const selected = draftFilters[colName]
+        ? (typeof draftFilters[colName] === 'string'
+          ? [draftFilters[colName]]  // legacy single value
+          : (draftFilters[colName].values || []))
+        : []
+      const isOpen = draftFilters[`_open_${colName}`]
+
+      const toggleValue = (val) => {
+        const newSelected = selected.includes(val)
+          ? selected.filter(v => v !== val)
+          : [...selected, val]
+        updateFilter(colName, newSelected.length > 0 ? { op: 'in', values: newSelected } : '')
+      }
+
+      // Get counts from badges
+      const byKey = `by_${colName}`
+      const counts = outputStats?.[byKey] || {}
+
       return (
-        <div key={colName} className="flex items-center gap-2">
+        <div key={colName} className="flex items-center gap-2 relative">
           <label className="text-xs text-gray-600 font-medium whitespace-nowrap">{colName}:</label>
-          <select
-            value={draftFilters[colName] || ''}
-            onChange={(e) => updateFilter(colName, e.target.value)}
-            className="px-2 py-1 border rounded text-xs min-w-[120px]"
+          <button
+            type="button"
+            onClick={() => setDraftFilters(prev => ({ ...prev, [`_open_${colName}`]: !isOpen }))}
+            className={`px-2 py-1 border rounded text-xs min-w-[120px] text-left flex items-center justify-between gap-1 ${
+              selected.length > 0 ? 'border-blue-400 bg-blue-50' : ''
+            }`}
           >
-            <option value="">Tất cả</option>
-            {colConfig.map(val => (
-              <option key={val} value={val}>{val}</option>
-            ))}
-          </select>
+            <span className="truncate max-w-[150px]">
+              {selected.length === 0 ? 'Tất cả' : selected.length === 1 ? selected[0] : `${selected.length} mục`}
+            </span>
+            <svg className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {isOpen && (
+            <div className="absolute top-full left-0 mt-1 bg-white border rounded shadow-lg z-50 min-w-[180px] max-h-[200px] overflow-y-auto">
+              {colConfig.map(val => (
+                <label key={val} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(val)}
+                    onChange={() => toggleValue(val)}
+                    className="rounded text-blue-600"
+                  />
+                  <span>{val}</span>
+                  {counts[val] != null && <span className="text-gray-400 ml-auto">({counts[val]})</span>}
+                </label>
+              ))}
+              {selected.length > 0 && (
+                <button
+                  onClick={() => { updateFilter(colName, ''); setDraftFilters(prev => ({ ...prev, [`_open_${colName}`]: false })) }}
+                  className="w-full text-xs text-center py-1.5 text-red-500 hover:bg-red-50 border-t"
+                >
+                  Bỏ chọn tất cả
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )
     }
@@ -206,7 +255,9 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
               className="px-1 py-1 border rounded text-xs w-16"
             >
               <option value="eq">=</option>
+              <option value="neq">≠</option>
               <option value="like">Chứa</option>
+              <option value="not_like">K.chứa</option>
             </select>
             <input
               type="text"
@@ -399,46 +450,53 @@ function OutputDetailSection({ outputName, batchId, outputStats }) {
       )}
 
       {/* Data table */}
-      <div className="overflow-x-auto max-h-96 border rounded">
-        {preview ? (
-          <>
-            <table className="w-full text-xs">
-              <thead className="bg-gray-100 sticky top-0">
-                <tr>
+      <div className={`overflow-auto max-h-96 border border-b-0 rounded-t relative ${isPreviewFetching ? 'opacity-60' : ''}`}>
+        {isPreviewLoading ? (
+          <div className="p-4 text-center text-gray-500 text-sm">
+            <span className="inline-block animate-spin mr-2">&#8987;</span>
+            Đang tải dữ liệu...
+          </div>
+        ) : preview && preview.data?.length > 0 ? (
+          <table className="w-full text-xs">
+            <thead className="bg-gray-100 sticky top-0">
+              <tr>
+                {preview.columns?.map((col) => (
+                  <th key={col} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {preview.data?.map((row, idx) => (
+                <tr key={idx} className="hover:bg-gray-50">
                   {preview.columns?.map((col) => (
-                    <th key={col} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">
-                      {col}
-                    </th>
+                    <td key={col} className={`px-3 py-2 ${wrapText ? 'whitespace-pre-wrap break-words max-w-md' : 'whitespace-nowrap max-w-xs truncate'}`} title={String(row[col] ?? '')}>
+                      {row[col]}
+                    </td>
                   ))}
                 </tr>
-              </thead>
-              <tbody className="divide-y">
-                {preview.data?.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    {preview.columns?.map((col) => (
-                      <td key={col} className={`px-3 py-2 ${wrapText ? 'whitespace-pre-wrap break-words max-w-md' : 'whitespace-nowrap max-w-xs truncate'}`} title={String(row[col] ?? '')}>
-                        {row[col]}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {/* Pagination */}
-            <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-t">
-              <p className="text-xs text-gray-500">
-                {page * pageSize + 1} - {Math.min((page + 1) * pageSize, preview.total)} / {preview.total}
-              </p>
-              <div className="flex gap-1">
-                <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="px-2 py-0.5 border rounded text-xs hover:bg-gray-100 disabled:opacity-50">←</button>
-                <button onClick={() => setPage(page + 1)} disabled={(page + 1) * pageSize >= preview.total} className="px-2 py-0.5 border rounded text-xs hover:bg-gray-100 disabled:opacity-50">→</button>
-              </div>
-            </div>
-          </>
+              ))}
+            </tbody>
+          </table>
         ) : (
-          <div className="p-4 text-center text-gray-500 text-sm">Không có dữ liệu {outputName}</div>
+          <div className="p-4 text-center text-gray-500 text-sm">
+            {hasActiveFilters ? 'Không tìm thấy dữ liệu phù hợp với bộ lọc' : `Không có dữ liệu ${outputName}`}
+          </div>
         )}
       </div>
+      {/* Pagination — always visible outside scroll area */}
+      {preview && preview.data?.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border rounded-b">
+          <p className="text-xs text-gray-500">
+            {page * pageSize + 1} - {Math.min((page + 1) * pageSize, preview.total)} / {preview.total}
+          </p>
+          <div className="flex gap-1">
+            <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="px-2 py-0.5 border rounded text-xs hover:bg-gray-100 disabled:opacity-50">←</button>
+            <button onClick={() => setPage(page + 1)} disabled={(page + 1) * pageSize >= preview.total} className="px-2 py-0.5 border rounded text-xs hover:bg-gray-100 disabled:opacity-50">→</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -502,7 +560,23 @@ function StepLogsList({ stepLogs, isProcessing, expandedPreviews, setExpandedPre
             }`}>
               {log.step}
             </span>
-            <span className="text-sm text-gray-700 flex-1">{log.message}</span>
+            <span className="text-sm text-gray-700 flex-1">
+              {log.message}
+              {log.file_details && log.file_details.files?.length > 0 && (
+                <span className="block mt-1 text-xs text-gray-500 pl-1">
+                  {log.file_details.files_count > 1 && (
+                    <span className="font-medium text-indigo-600">{log.file_details.files_count} files: </span>
+                  )}
+                  {log.file_details.files.map((f, i) => (
+                    <span key={i}>
+                      {i > 0 && <span className="mx-1">|</span>}
+                      <span className="font-medium">{f.file}</span>
+                      <span className="text-gray-400"> ({f.rows?.toLocaleString()} dòng)</span>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </span>
             {log.data_preview && (
               <button
                 onClick={() => setExpandedPreviews(prev => ({

@@ -28,12 +28,16 @@ router = APIRouter()
 # =============================================================================
 
 def _detect_column_type(series: pd.Series) -> str:
-    """Auto-detect data type from pandas Series."""
+    """Auto-detect data type from pandas Series.
+    Default to 'string' when sample is all-null or ambiguous."""
+    non_null = series.dropna()
+    if len(non_null) == 0:
+        return "string"  # all-null → default string (safe fallback)
     if pd.api.types.is_numeric_dtype(series):
         return "number"
     # Try date parsing
     try:
-        sample = series.dropna().head(100)
+        sample = non_null.head(100)
         if len(sample) > 0:
             parsed = pd.to_datetime(sample, errors='coerce')
             if parsed.notna().sum() > len(parsed) * 0.5:
@@ -41,7 +45,7 @@ def _detect_column_type(series: pd.Series) -> str:
     except Exception:
         pass
     # Check boolean-like (only 2 unique values like true/false, 0/1, yes/no)
-    unique = series.dropna().unique()
+    unique = non_null.unique()
     if len(unique) <= 2:
         lower_vals = {str(v).lower() for v in unique}
         if lower_vals <= {'true', 'false', '0', '1', 'yes', 'no', 't', 'f'}:
@@ -79,10 +83,22 @@ def apply_filters(chunk: pd.DataFrame, filters: list) -> pd.DataFrame:
         actual_col = col_map.get(col.lower())
         if not actual_col:
             continue
-        if op == "eq":
+        if op == "in":
+            # Multi-value match (e.g. match_status in [MATCHED, NOT_FOUND])
+            values = f.get("values", [])
+            if values:
+                upper_vals = {str(v).upper() for v in values}
+                mask &= chunk[actual_col].astype(str).str.upper().isin(upper_vals)
+        elif op == "eq":
             mask &= chunk[actual_col].astype(str).str.upper() == str(f.get("value", "")).upper()
+        elif op == "neq":
+            mask &= chunk[actual_col].astype(str).str.upper() != str(f.get("value", "")).upper()
         elif op == "like":
             mask &= chunk[actual_col].astype(str).str.upper().str.contains(
+                str(f.get("value", "")).upper(), na=False
+            )
+        elif op == "not_like":
+            mask &= ~chunk[actual_col].astype(str).str.upper().str.contains(
                 str(f.get("value", "")).upper(), na=False
             )
         elif op == "range":
@@ -537,85 +553,52 @@ async def get_batch_stats(
         except:
             pass
 
-    # Use pre-computed output_stats from summary_stats (computed during workflow execution)
-    output_stats = stats.get("output_stats", {})
+    # Build output_stats:
+    #   - Badges & totals: from summary_stats.output_details in DB (no CSV read)
+    #   - match_status filter: dropdown values from DB status_counts
+    #   - Other filterable columns: read 100-row CSV sample to detect data type only
+    output_stats = {}
 
-    # Fallback: read CSV for old batches that don't have pre-computed output_stats
-    if not output_stats:
-        # Try to get config for filterable column lookup
-        fallback_config = None
-        if batch.config_id:
-            fallback_config = db.query(PartnerServiceConfig).filter(
-                PartnerServiceConfig.id == batch.config_id
-            ).first()
+    # Get config for filterable column lookup
+    recon_config = None
+    if batch.config_id:
+        recon_config = db.query(PartnerServiceConfig).filter(
+            PartnerServiceConfig.id == batch.config_id
+        ).first()
 
-        for output_name, output_path in batch.file_results_dict.items():
-            if output_path and os.path.exists(output_path):
-                try:
-                    df_out = pd.read_csv(output_path, encoding="utf-8-sig")
-                    out_stat = {"total": len(df_out), "filter_columns": {}}
+    output_details = stats.get("output_details", {})
+    for output_name, output_path in batch.file_results_dict.items():
+        detail = output_details.get(output_name, {})
+        total = detail.get("row_count", 0)
+        if total == 0 and output_path and os.path.exists(output_path):
+            total = _get_csv_line_count(output_path)
 
-                    # Try config-driven filterable columns
-                    filterable_cols = []
-                    if fallback_config:
-                        step_map = {s.output_name.upper(): s for s in (fallback_config.workflow_steps or [])}
-                        step = step_map.get(output_name.upper())
-                        if step:
-                            cols_list = step.output_columns_list if hasattr(step, 'output_columns_list') else []
-                            filterable_cols = [c for c in cols_list if c.get("filterable")]
+        out_stat = {"total": total, "filter_columns": {}}
 
-                    # ALWAYS include match_status and other status columns (default badges + filter)
-                    for col in df_out.columns:
-                        col_lower = col.lower()
-                        if ('status' in col_lower) and ('detail' not in col_lower) and ('note' not in col_lower):
-                            value_counts = df_out[col].value_counts().to_dict()
-                            out_stat[f"by_{col}"] = {str(k): int(v) for k, v in value_counts.items()}
-                            out_stat["filter_columns"][col] = [str(k) for k in value_counts.keys()]
+        # Status counts from DB → badges + dropdown filter
+        status_counts = detail.get("status_counts", {})
+        if status_counts:
+            out_stat["by_match_status"] = {str(k): int(v) for k, v in status_counts.items()}
+            out_stat["filter_columns"]["match_status"] = [str(k) for k in status_counts.keys()]
 
-                    # Additional filterable columns from config
+        # Detect filterable column types from 100-row CSV sample (instant, ~ms)
+        if output_path and os.path.exists(output_path) and recon_config:
+            try:
+                step_map = {s.output_name.upper(): s for s in (recon_config.workflow_steps or [])}
+                step = step_map.get(output_name.upper())
+                if step:
+                    cols_list = step.output_columns_list if hasattr(step, 'output_columns_list') else []
+                    filterable_cols = [c for c in cols_list if c.get("filterable")]
                     if filterable_cols:
+                        sample = pd.read_csv(output_path, nrows=100, encoding="utf-8-sig")
                         for col_cfg in filterable_cols:
                             col_name = col_cfg.get("display_name") or col_cfg.get("column_name")
-                            if not col_name or col_name not in df_out.columns:
-                                continue
-                            if col_name in out_stat["filter_columns"]:
-                                continue
-                            data_type = _detect_column_type(df_out[col_name])
-                            if data_type == "string":
-                                vc = df_out[col_name].value_counts().to_dict()
-                                values_list = [str(k) for k in vc.keys()]
-                                out_stat["filter_columns"][col_name] = {
-                                    "type": "string",
-                                    "values": values_list
-                                }
-                                if len(values_list) <= 20:
-                                    out_stat[f"by_{col_name}"] = {str(k): int(v) for k, v in vc.items()}
-                            elif data_type == "number":
-                                s = pd.to_numeric(df_out[col_name], errors='coerce')
-                                out_stat["filter_columns"][col_name] = {
-                                    "type": "number",
-                                    "min": float(s.min()) if not s.isna().all() else None,
-                                    "max": float(s.max()) if not s.isna().all() else None,
-                                }
-                            elif data_type == "date":
-                                s = pd.to_datetime(df_out[col_name], errors='coerce')
-                                out_stat["filter_columns"][col_name] = {
-                                    "type": "date",
-                                    "min": str(s.min().date()) if not s.isna().all() else None,
-                                    "max": str(s.max().date()) if not s.isna().all() else None,
-                                }
-                            elif data_type == "boolean":
-                                vc = df_out[col_name].astype(str).value_counts().to_dict()
-                                out_stat["filter_columns"][col_name] = {
-                                    "type": "boolean",
-                                    "values": [str(k) for k in vc.keys()]
-                                }
+                            if col_name and col_name in sample.columns and col_name not in out_stat["filter_columns"]:
+                                out_stat["filter_columns"][col_name] = {"type": _detect_column_type(sample[col_name])}
+            except Exception as e:
+                logger.warning(f"Error detecting filter types for {output_name}: {e}")
 
-                    if 'source' in df_out.columns:
-                        out_stat["by_source"] = {str(k): int(v) for k, v in df_out["source"].value_counts().to_dict().items()}
-                    output_stats[output_name] = out_stat
-                except Exception:
-                    pass
+        output_stats[output_name] = out_stat
 
     # Get final status options from config's workflow steps
     config = None

@@ -6,7 +6,7 @@ Mount all v2 endpoints here
 from fastapi import APIRouter
 from app.api.v2.endpoints import (
     configs, data_sources, workflows, outputs, reconciliation,
-    auth, users, partners, reports, approvals, mock_data
+    auth, users, partners, reports, approvals
 )
 
 api_router = APIRouter()
@@ -74,9 +74,3 @@ api_router.include_router(
     tags=["approvals"]
 )
 
-# --- Admin Tools ---
-api_router.include_router(
-    mock_data.router,
-    prefix="/mock-data",
-    tags=["mock-data"]
-)

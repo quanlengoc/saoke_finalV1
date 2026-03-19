@@ -62,6 +62,8 @@ export default function ConfigEditV2Page() {
   const [dataSources, setDataSources] = useState([])
   const [workflowSteps, setWorkflowSteps] = useState([])
   const [outputConfigs, setOutputConfigs] = useState([])
+  const [dbConnections, setDbConnections] = useState([])
+  const [sqlTemplates, setSqlTemplates] = useState([])
   
   // UI state
   const [loading, setLoading] = useState(!isNew)
@@ -74,10 +76,21 @@ export default function ConfigEditV2Page() {
   // Track changes (được gọi từ các hàm update)
   const markChanged = () => setHasChanges(true)
 
+  const loadSqlTemplates = () => {
+    dataSourcesApiV2.listSqlTemplates().then(res => {
+      setSqlTemplates(res.data.files || [])
+    }).catch(() => {})
+  }
+
   useEffect(() => {
     if (!isNew) {
       loadConfig()
     }
+    // Load DB connections + SQL templates for DATABASE source type
+    dataSourcesApiV2.listDbConnections().then(res => {
+      setDbConnections(res.data.connections || [])
+    }).catch(() => {})
+    loadSqlTemplates()
   }, [id])
 
   const loadConfig = async () => {
@@ -430,6 +443,9 @@ export default function ConfigEditV2Page() {
             configId={id}
             isNewConfig={isNew}
             onReload={loadConfig}
+            dbConnections={dbConnections}
+            sqlTemplates={sqlTemplates}
+            onRefreshSqlTemplates={loadSqlTemplates}
           />
         )}
 
@@ -671,7 +687,7 @@ const SOURCE_TYPE_STYLES = {
   API: { bg: 'bg-orange-100', text: 'text-orange-800', label: 'API' },
 }
 
-function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, onReload }) {
+function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, onReload, dbConnections = [], sqlTemplates = [], onRefreshSqlTemplates }) {
   const [editingSource, setEditingSource] = useState(null) // index of source being edited
   const [editForm, setEditForm] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -734,6 +750,9 @@ function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, on
       delete formData.isNew
       delete formData.isModified
       delete formData.isDeleted
+      if (formData.db_config) {
+        delete formData.db_config._sql_params_draft
+      }
 
       if (editForm.isNew || String(editForm.id).startsWith('new_')) {
         // TẠO MỚI - thêm config_id vào data
@@ -747,8 +766,9 @@ function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, on
         updated[editingSource] = { ...response.data, isNew: false, isModified: false }
         setDataSources(updated)
       } else {
-        // CẬP NHẬT
-        const response = await dataSourcesApiV2.update(editForm.id, formData)
+        // CẬP NHẬT — strip fields not accepted by PATCH endpoint
+        const { id: _id, config_id: _cid, created_at: _ca, updated_at: _ua, ...updateData } = formData
+        const response = await dataSourcesApiV2.update(editForm.id, updateData)
         console.log('✅ Updated data source:', response.data)
         
         // Cập nhật local state
@@ -1080,6 +1100,29 @@ function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, on
                     </div>
                   </div>
 
+                  {/* Required columns — filter out rows where these columns are empty */}
+                  <div className="mb-4">
+                    <label className="block text-sm text-gray-600 mb-1">
+                      Cột bắt buộc có giá trị
+                      <span className="text-xs text-gray-400 ml-1">(dòng nào cột này trống sẽ bị loại — dùng để bỏ dòng tổng hợp/footer)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={
+                        Array.isArray(editForm.file_config?.required_columns)
+                          ? editForm.file_config.required_columns.join(', ')
+                          : editForm.file_config?.required_columns || ''
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value
+                        // Store as comma-separated string — backend parses it
+                        handleConfigChange('file_config', 'required_columns', val.trim() || null)
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm font-mono"
+                      placeholder="VD: A hoặc A, C (ký hiệu cột Excel, nhiều cột cách bằng dấu phẩy)"
+                    />
+                  </div>
+
                   {/* Column Mapping */}
                   <div className="bg-blue-50 p-4 rounded-lg">
                     <div className="flex justify-between items-center mb-3">
@@ -1149,23 +1192,168 @@ function DataSourcesTab({ dataSources, setDataSources, configId, isNewConfig, on
                         className="w-full px-3 py-2 border rounded-lg"
                       >
                         <option value="">-- Chọn kết nối --</option>
-                        <option value="vnptmoney_main">vnptmoney_main</option>
-                        <option value="vnptmoney_report">vnptmoney_report</option>
-                        <option value="partner_db">partner_db</option>
+                        {dbConnections.map(conn => (
+                          <option key={conn} value={conn}>{conn}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">File SQL *</label>
-                      <input
-                        type="text"
-                        value={editForm.db_config?.sql_file || ''}
-                        onChange={(e) => handleConfigChange('db_config', 'sql_file', e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg"
-                        placeholder="shared/query_b4.sql"
-                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={editForm.db_config?.sql_file || ''}
+                          onChange={(e) => handleConfigChange('db_config', 'sql_file', e.target.value)}
+                          className="flex-1 px-3 py-2 border rounded-lg"
+                        >
+                          <option value="">-- Chọn file SQL --</option>
+                          {sqlTemplates.map(f => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                          {editForm.db_config?.sql_file && !sqlTemplates.includes(editForm.db_config.sql_file) && (
+                            <option value={editForm.db_config.sql_file}>{editForm.db_config.sql_file}</option>
+                          )}
+                        </select>
+                        <label className="px-3 py-2 bg-gray-100 border rounded-lg cursor-pointer hover:bg-gray-200 text-sm text-gray-600 whitespace-nowrap flex items-center gap-1">
+                          <PlusIcon className="h-4 w-4" />
+                          Upload
+                          <input
+                            type="file"
+                            accept=".sql"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0]
+                              if (!file) return
+                              try {
+                                const res = await dataSourcesApiV2.uploadSqlTemplate(file)
+                                handleConfigChange('db_config', 'sql_file', res.data.file)
+                                if (onRefreshSqlTemplates) onRefreshSqlTemplates()
+                              } catch (err) {
+                                alert(err.response?.data?.detail || 'Upload thất bại')
+                              }
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
                   </div>
                   
+                  {/* SQL Parameters — stored as object {key:value} but edited as array for stable React keys */}
+                  {(() => {
+                    // Convert object → array for editing, convert back on change
+                    const paramsObj = editForm.db_config?.sql_params || {}
+                    const paramsArr = Object.entries(paramsObj).map(([name, value]) => ({ name, value }))
+
+                    const updateParams = (newArr) => {
+                      const obj = {}
+                      newArr.forEach(p => { if (p.name) obj[p.name] = p.value || '' })
+                      handleConfigChange('db_config', 'sql_params', obj)
+                    }
+
+                    return (
+                      <div className="bg-amber-50 p-4 rounded-lg mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <label className="font-medium text-amber-800">Tham số SQL (sql_params)</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newArr = [...paramsArr, { name: '', value: '' }]
+                              // Don't convert to object yet — empty name would be lost
+                              // Store as _sql_params_draft temporarily
+                              handleConfigChange('db_config', '_sql_params_draft', newArr)
+                            }}
+                            className="text-sm text-amber-600 hover:text-amber-800"
+                          >
+                            + Thêm tham số
+                          </button>
+                        </div>
+                        <div className="text-xs text-amber-600 mb-3 space-y-1">
+                          <p>
+                            Dùng <code className="bg-amber-100 px-1 rounded">{'{tên_tham_số}'}</code> trong file SQL.
+                            Tham số hệ thống tự động: <code className="bg-amber-100 px-1 rounded">{'{date_from}'}</code>, <code className="bg-amber-100 px-1 rounded">{'{date_to}'}</code> (từ kỳ đối soát)
+                          </p>
+                          <p className="text-amber-500 italic">
+                            Trong SQL: string dùng <code className="bg-amber-100 px-1 rounded">= '{'{param}'}'</code> (có nháy đơn), number dùng <code className="bg-amber-100 px-1 rounded">= {'{param}'}</code> (không nháy)
+                          </p>
+                        </div>
+
+                        {(() => {
+                          // Use draft if exists (has empty-name rows), otherwise from paramsObj
+                          const draft = editForm.db_config?._sql_params_draft || null
+                          const displayArr = draft || paramsArr
+
+                          if (displayArr.length === 0) {
+                            return (
+                              <p className="text-sm text-amber-500 text-center py-2">
+                                Chưa có tham số. Nếu file SQL không cần tham số bổ sung thì bỏ qua.
+                              </p>
+                            )
+                          }
+
+                          const updateDraft = (newArr) => {
+                            // Save to draft AND to sql_params (for non-empty names)
+                            const obj = {}
+                            newArr.forEach(p => { if (p.name.trim()) obj[p.name.trim()] = p.value || '' })
+                            setEditForm(prev => ({
+                              ...prev,
+                              db_config: {
+                                ...(prev.db_config || {}),
+                                sql_params: obj,
+                                _sql_params_draft: newArr,
+                              }
+                            }))
+                          }
+
+                          return (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 px-2">
+                                <div className="col-span-5">Tên tham số</div>
+                                <div className="col-span-5">Giá trị mặc định</div>
+                                <div className="col-span-2"></div>
+                              </div>
+                              {displayArr.map((param, idx) => (
+                                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                  <input
+                                    type="text"
+                                    value={param.name}
+                                    onChange={(e) => {
+                                      const newArr = [...displayArr]
+                                      newArr[idx] = { ...newArr[idx], name: e.target.value }
+                                      updateDraft(newArr)
+                                    }}
+                                    className="col-span-5 px-2 py-1.5 border rounded text-sm"
+                                    placeholder="VD: service_id"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={param.value || ''}
+                                    onChange={(e) => {
+                                      const newArr = [...displayArr]
+                                      newArr[idx] = { ...newArr[idx], value: e.target.value }
+                                      updateDraft(newArr)
+                                    }}
+                                    className="col-span-5 px-2 py-1.5 border rounded text-sm"
+                                    placeholder="VD: TOPUP"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newArr = displayArr.filter((_, i) => i !== idx)
+                                      updateDraft(newArr)
+                                    }}
+                                    className="col-span-2 text-red-400 hover:text-red-600 text-center"
+                                  >
+                                    <TrashIcon className="h-4 w-4 inline" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )
+                  })()}
+
                   {/* Output Columns - danh sách các cột sẽ trả ra từ query */}
                   <div className="bg-green-50 p-4 rounded-lg">
                     <div className="flex justify-between items-center mb-3">
@@ -3912,7 +4100,7 @@ function WorkflowOutputColumnsEditor({ step, stepId, updateWorkflowStep, dataSou
   const getSourceColumns = (sourceName) => {
     // Special case: MATCH_STATUS
     if (sourceName === 'MATCH_STATUS') {
-      return ['match_status', 'match_detail', 'amount_difference', 'left_key', 'right_key', 'left_amount', 'right_amount']
+      return ['match_status', 'match_detail', 'amount_difference', 'left_key', 'right_key', 'left_amount', 'right_amount', 'left_match_count', 'right_match_count']
     }
     
     // EXPRESSION has no source columns - uses rule builder instead

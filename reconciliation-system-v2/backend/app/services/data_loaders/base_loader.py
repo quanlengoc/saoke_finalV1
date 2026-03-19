@@ -2,6 +2,8 @@
 Base Data Loader - Abstract base class for all data loaders
 """
 
+import re
+import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
@@ -77,6 +79,43 @@ class BaseDataLoader(ABC):
         """
         pass
     
+    @staticmethod
+    def _normalize_col_name(name: str) -> str:
+        """Convert column name to safe alias: remove diacritics, lowercase, spaces→underscores.
+        'Số tham chiếu' → 'so_tham_chieu', 'Mã gạch nợ' → 'ma_gach_no'
+        """
+        if not isinstance(name, str):
+            name = str(name)
+        # Remove diacritics (Vietnamese etc.)
+        nfkd = unicodedata.normalize('NFKD', name)
+        ascii_str = ''.join(c for c in nfkd if not unicodedata.combining(c))
+        # Replace đ/Đ manually (not decomposed by NFKD)
+        ascii_str = ascii_str.replace('đ', 'd').replace('Đ', 'D')
+        # Lowercase, replace non-alphanumeric with underscore
+        cleaned = re.sub(r'[^a-zA-Z0-9]+', '_', ascii_str.lower()).strip('_')
+        return cleaned or f'col_{hash(name) % 10000}'
+
+    def auto_normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Auto-rename all columns to safe aliases when no column mapping is configured.
+        Original col name → normalized alias. Handles duplicates by appending _2, _3..."""
+        rename_map = {}
+        seen = {}
+        for col in df.columns:
+            if str(col).startswith('_'):
+                continue  # skip internal columns
+            alias = self._normalize_col_name(col)
+            if alias in seen:
+                seen[alias] += 1
+                alias = f"{alias}_{seen[alias]}"
+            else:
+                seen[alias] = 1
+            if alias != col:
+                rename_map[col] = alias
+        if rename_map:
+            self.log('info', f"Auto-normalized {len(rename_map)} columns: {rename_map}")
+            df = df.rename(columns=rename_map)
+        return df
+
     def apply_column_mapping(self, df: pd.DataFrame, columns_config: Dict[str, str]) -> pd.DataFrame:
         """
         Apply column mapping/renaming

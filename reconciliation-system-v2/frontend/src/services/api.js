@@ -206,6 +206,7 @@ export const configsApi = {
   create: (data) => api.post('/configs/', data),
   update: (configId, data) => api.patch(`/configs/${configId}`, data),
   delete: (configId) => api.delete(`/configs/${configId}`),
+  clone: (configId, newBasicInfo) => api.post(`/configs/${configId}/clone`, newBasicInfo),
 }
 
 // ============================================================================
@@ -218,6 +219,15 @@ export const dataSourcesApi = {
   create: (data) => api.post('/data-sources/', data),
   update: (sourceId, data) => api.patch(`/data-sources/${sourceId}`, data),
   delete: (sourceId) => api.delete(`/data-sources/${sourceId}`),
+  listDbConnections: () => api.get('/data-sources/db-connections'),
+  listSqlTemplates: () => api.get('/data-sources/sql-templates'),
+  uploadSqlTemplate: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/data-sources/sql-templates/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
 }
 
 // ============================================================================
@@ -242,28 +252,6 @@ export const outputsApi = {
   create: (data) => api.post('/outputs/', data),
   update: (outputId, data) => api.patch(`/outputs/${outputId}`, data),
   delete: (outputId) => api.delete(`/outputs/${outputId}`),
-}
-
-// ============================================================================
-// Mock Data API (Admin)
-// ============================================================================
-
-export const mockDataApi = {
-  list: () => api.get('/mock-data'),
-  upload: (partnerCode, serviceCode, file) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    return api.post('/mock-data/upload', formData, {
-      params: { partner_code: partnerCode, service_code: serviceCode },
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
-  },
-  preview: (filename, limit = 20) =>
-    api.get(`/mock-data/preview/${filename}`, { params: { limit } }),
-  download: (filename) => `/api/v2/mock-data/download/${filename}`,
-  delete: (filename) => api.delete(`/mock-data/${filename}`),
-  getColumns: (partnerCode, serviceCode) =>
-    api.get(`/mock-data/columns/${partnerCode}/${serviceCode}`),
 }
 
 // ============================================================================

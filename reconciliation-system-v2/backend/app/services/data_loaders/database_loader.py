@@ -9,6 +9,7 @@ import pandas as pd
 import configparser
 
 from app.services.data_loaders.base_loader import BaseDataLoader, DataLoaderResult
+from app.core.sql_security import SqlGuard, SqlSecurityError
 
 
 class DatabaseDataLoader(BaseDataLoader):
@@ -23,7 +24,6 @@ class DatabaseDataLoader(BaseDataLoader):
             "date_from": "2026-01-01",
             "date_to": "2026-01-31"
         },
-        "mock_file": "mock_data.csv",       # Mock file for development
         "columns": {                        # Optional column mapping
             "txn_id": "TRANSACTION_ID",
             "amount": "TOTAL_AMOUNT"
@@ -69,36 +69,24 @@ class DatabaseDataLoader(BaseDataLoader):
         db_conn_name = self.config['db_connection']
         section_name = f"database.{db_conn_name}"
         
-        # Check if connection exists in config.ini (or mock mode is enabled)
+        # Check if connection exists in config.ini
         if not self.ini_config.has_section(section_name):
-            # Check if mock mode
-            if self._is_mock_mode():
-                if 'mock_file' not in self.config:
-                    return False, f"Mock mode enabled but no 'mock_file' specified"
-            else:
-                return False, f"Database connection '{db_conn_name}' not found in config.ini"
-        
-        # Check SQL file exists (unless using mock)
-        if not self._is_mock_mode():
-            if 'sql_file' not in self.config:
-                return False, "Missing 'sql_file' configuration"
-            
-            sql_path = self.storage_base_path / "sql_templates" / self.config['sql_file']
-            if not sql_path.exists():
-                return False, f"SQL file not found: {sql_path}"
+            return False, f"Database connection '{db_conn_name}' not found in config.ini"
+
+        # Check SQL file exists
+        if 'sql_file' not in self.config:
+            return False, "Missing 'sql_file' configuration"
+
+        sql_path = self.storage_base_path / "sql_templates" / self.config['sql_file']
+        if not sql_path.exists():
+            return False, f"SQL file not found: {sql_path}"
         
         return True, ""
     
-    def _is_mock_mode(self) -> bool:
-        """Check if mock mode is enabled"""
-        if self.ini_config.has_section('mock'):
-            return self.ini_config.getboolean('mock', 'enabled', fallback=False)
-        return False
-    
     def load(self) -> DataLoaderResult:
-        """Load data from database or mock file"""
+        """Load data from database"""
         start_time = time.time()
-        
+
         # Validate first
         is_valid, error = self.validate_config()
         if not is_valid:
@@ -108,20 +96,18 @@ class DatabaseDataLoader(BaseDataLoader):
                 source_name=self.source_name,
                 source_type=self.SOURCE_TYPE
             )
-        
+
         try:
-            # Check mock mode
-            if self._is_mock_mode():
-                df = self._load_from_mock()
-            else:
-                df = self._load_from_database()
+            df = self._load_from_database()
             
             self.log('info', f"Loaded {len(df)} rows from database source")
             
-            # Apply column mapping if specified
+            # Apply column mapping if specified, otherwise auto-normalize column names
             columns_config = self.config.get('columns', {})
             if columns_config:
                 df = self.apply_column_mapping(df, columns_config)
+            else:
+                df = self.auto_normalize_columns(df)
             
             # Apply transforms if specified
             transforms = self.config.get('transforms', {})
@@ -142,36 +128,36 @@ class DatabaseDataLoader(BaseDataLoader):
                 load_time_seconds=load_time,
                 metadata={
                     'db_connection': self.config.get('db_connection'),
-                    'mock_mode': self._is_mock_mode(),
                     'columns_loaded': list(df.columns)
                 }
             )
             
-        except Exception as e:
-            self.log('error', f"Failed to load from database: {e}")
+        except SqlSecurityError as e:
+            self.log('error', f"SQL security violation: {e}")
             return DataLoaderResult(
                 success=False,
-                error_message=str(e),
+                error_message=f"SQL security violation: {e}",
+                source_name=self.source_name,
+                source_type=self.SOURCE_TYPE,
+                load_time_seconds=time.time() - start_time
+            )
+        except Exception as e:
+            # Log full error to app log (for ops), show generic message to user
+            import logging
+            logging.getLogger('app').error(
+                f"[DB_QUERY_ERROR] source={self.source_name} | error={e}", exc_info=True
+            )
+            self.log('error', f"Failed to load from database: {type(e).__name__}")
+            return DataLoaderResult(
+                success=False,
+                error_message=f"Lỗi truy vấn database. Vui lòng kiểm tra cấu hình SQL và tham số. Chi tiết xem trong log vận hành.",
                 source_name=self.source_name,
                 source_type=self.SOURCE_TYPE,
                 load_time_seconds=time.time() - start_time
             )
     
-    def _load_from_mock(self) -> pd.DataFrame:
-        """Load from mock CSV file"""
-        mock_file = self.config.get('mock_file')
-        mock_path = self.storage_base_path / "mock_data" / mock_file
-        
-        self.log('info', f"Loading from mock file: {mock_path.name}")
-        
-        if not mock_path.exists():
-            raise FileNotFoundError(f"Mock file not found: {mock_path}")
-        
-        df = pd.read_csv(mock_path, dtype=str)
-        return df
-    
     def _load_from_database(self) -> pd.DataFrame:
-        """Load from actual database"""
+        """Load from database"""
         db_conn_name = self.config['db_connection']
         section_name = f"database.{db_conn_name}"
         
@@ -185,12 +171,25 @@ class DatabaseDataLoader(BaseDataLoader):
         
         # Merge sql_params with cycle_params
         params = {**self.config.get('sql_params', {}), **self.cycle_params}
-        
-        # Format SQL with parameters
-        sql = sql_template.format(**params)
-        
+
+        # Security: validate params + format template + validate final SQL
+        try:
+            sql = SqlGuard.validate_format_params(
+                sql_template, params,
+                context=f"database_loader/{self.source_name}/{sql_path.name}"
+            )
+        except SqlSecurityError as e:
+            self.log('error', f"SQL security violation: {e}")
+            raise ValueError(f"SQL security violation: {e}")
+
         self.log('debug', f"Executing SQL from {sql_path.name}")
-        
+        # Log full SQL to app logger (for ops team), not to batch step log (user-facing)
+        import logging
+        logging.getLogger('app').info(
+            f"[DB_QUERY] source={self.source_name} | file={sql_path.name} | "
+            f"params={params} | SQL: {sql}"
+        )
+
         if db_type == 'oracle':
             return self._query_oracle(section_name, sql)
         elif db_type == 'sqlite':

@@ -318,13 +318,18 @@ class GenericMatchingEngine:
         left_unique = left_keys['_match_key'].nunique()
         right_unique = right_keys['_match_key'].nunique()
         logger.info(f"Built match keys. Left unique: {left_unique}, Right unique: {right_unique}")
-        
+
+        # Pre-compute key counts as small lookup dicts (O(n) one-pass, minimal memory)
+        # These are tiny: only unique_keys entries, not full DataFrame columns
+        _left_vc = left_keys['_match_key'].value_counts()
+        _right_vc = right_keys['_match_key'].value_counts()
+
         # Deduplicate right side before merge (prevent memory explosion)
         right_deduped = right_keys.drop_duplicates(
             subset=['_match_key'], keep='first'
         )
         logger.info(f"Right side deduped: {len(right_keys)} -> {len(right_deduped)} rows")
-        
+
         # Perform merge based on join type
         merged = pd.merge(
             left_keys,
@@ -333,9 +338,9 @@ class GenericMatchingEngine:
             how=join_type.value,
             suffixes=('_left', '_right')
         )
-        
+
         logger.info(f"Merge completed in {time.time() - start_time:.2f}s. Merged rows: {len(merged)}")
-        
+
         # Handle duplicates on left side - keep first match
         # Split: LEFT-only rows (NaN _left_idx for RIGHT join / OUTER) must be preserved
         left_has = merged['_left_idx'].notna()
@@ -344,11 +349,15 @@ class GenericMatchingEngine:
         merged = pd.concat([merged_with_left, merged_right_only], ignore_index=True)
 
         # Build results DataFrame with debug key columns
+        # Map match counts from pre-computed lookup (O(result_size) — result is post-dedup, much smaller)
+        match_key_col = merged['_match_key']
         results = pd.DataFrame({
             f'{left_name}_index': merged['_left_idx'].values,
             f'{right_name}_index': merged['_right_idx'].values,
             '_debug_left_key': merged['_left_key_value'].values if '_left_key_value' in merged.columns else None,
             '_debug_right_key': merged['_right_key_value'].values if '_right_key_value' in merged.columns else None,
+            '_debug_left_match_count': match_key_col.map(_left_vc).fillna(0).astype(int).values,
+            '_debug_right_match_count': match_key_col.map(_right_vc).fillna(0).astype(int).values,
         })
 
         # Determine status
@@ -474,13 +483,17 @@ class GenericMatchingEngine:
             f"Left unique: {left_unique}, Right unique: {right_unique}. "
             f"Left samples: {left_sample}, Right samples: {right_sample}"
         )
-        
+
+        # Pre-compute key counts as small lookup dicts
+        _left_vc = left_keys['_match_key'].value_counts()
+        _right_vc = right_keys['_match_key'].value_counts()
+
         # Deduplicate right side before merge
         right_deduped = right_keys.drop_duplicates(
             subset=['_match_key'], keep='first'
         )
         logger.info(f"Right side deduped: {len(right_keys)} -> {len(right_deduped)} rows")
-        
+
         # Perform merge
         merged = pd.merge(
             left_keys,
@@ -489,7 +502,7 @@ class GenericMatchingEngine:
             how=join_type.value,
             suffixes=('_left', '_right')
         )
-        
+
         logger.info(f"Merge completed in {time.time() - start_time:.2f}s. Merged rows: {len(merged)}")
 
         # Handle duplicates on left side — preserve RIGHT-only rows (NaN _left_idx)
@@ -498,12 +511,15 @@ class GenericMatchingEngine:
         merged_right_only = merged[~left_has]
         merged = pd.concat([merged_with_left, merged_right_only], ignore_index=True)
 
-        # Build results DataFrame with debug key columns
+        # Build results DataFrame with debug key columns + match counts
+        match_key_col = merged['_match_key']
         results = pd.DataFrame({
             f'{left_name}_index': merged['_left_idx'].values,
             f'{right_name}_index': merged['_right_idx'].values,
             '_debug_left_key': merged['_left_key_value'].values if '_left_key_value' in merged.columns else None,
             '_debug_right_key': merged['_right_key_value'].values if '_right_key_value' in merged.columns else None,
+            '_debug_left_match_count': match_key_col.map(_left_vc).fillna(0).astype(int).values,
+            '_debug_right_match_count': match_key_col.map(_right_vc).fillna(0).astype(int).values,
         })
 
         # Determine status

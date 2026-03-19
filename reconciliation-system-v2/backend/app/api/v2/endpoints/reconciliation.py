@@ -143,81 +143,10 @@ def _export_outputs_and_build_stats(
         elif upper_name == "A2":
             file_result_a2 = csv_path
     
-    # Pre-compute output_stats for each output (avoids re-reading CSV in stats endpoint)
-    # Config-driven: use filterable columns from workflow step config + auto dtype detection
-    from app.api.v2.endpoints.reports import _detect_column_type
-
-    pre_computed_output_stats = {}
-    step_map = {s.output_name.upper(): s for s in config.workflow_steps}
-
-    for output_name, df in result.outputs.items():
-        if df.empty:
-            continue
-        out_stat = {"total": len(df), "filter_columns": {}}
-
-        # Check if step has filterable columns configured
-        step = step_map.get(output_name.upper())
-        filterable_cols = []
-        if step:
-            cols_list = step.output_columns_list if hasattr(step, 'output_columns_list') else []
-            filterable_cols = [c for c in cols_list if c.get("filterable")]
-
-        # ALWAYS include match_status and other status columns (default badges + filter)
-        for col in df.columns:
-            col_lower = col.lower()
-            if ('status' in col_lower) and ('detail' not in col_lower) and ('note' not in col_lower):
-                value_counts = df[col].value_counts().to_dict()
-                out_stat[f"by_{col}"] = {str(k): int(v) for k, v in value_counts.items()}
-                out_stat["filter_columns"][col] = [str(k) for k in value_counts.keys()]
-
-        # Additional filterable columns from config (beyond default status columns)
-        if filterable_cols:
-            for col_cfg in filterable_cols:
-                col_name = col_cfg.get("display_name") or col_cfg.get("column_name")
-                if not col_name or col_name not in df.columns:
-                    continue
-                # Skip if already handled as a status column above
-                if col_name in out_stat["filter_columns"]:
-                    continue
-                data_type = _detect_column_type(df[col_name])
-
-                if data_type == "string":
-                    vc = df[col_name].value_counts().to_dict()
-                    values_list = [str(k) for k in vc.keys()]
-                    out_stat["filter_columns"][col_name] = {
-                        "type": "string",
-                        "values": values_list
-                    }
-                    # Only generate by_ badge stats for columns with ≤ 20 unique values
-                    if len(values_list) <= 20:
-                        out_stat[f"by_{col_name}"] = {str(k): int(v) for k, v in vc.items()}
-                elif data_type == "number":
-                    s = pd.to_numeric(df[col_name], errors='coerce')
-                    out_stat["filter_columns"][col_name] = {
-                        "type": "number",
-                        "min": float(s.min()) if not s.isna().all() else None,
-                        "max": float(s.max()) if not s.isna().all() else None,
-                    }
-                elif data_type == "date":
-                    s = pd.to_datetime(df[col_name], errors='coerce')
-                    out_stat["filter_columns"][col_name] = {
-                        "type": "date",
-                        "min": str(s.min().date()) if not s.isna().all() else None,
-                        "max": str(s.max().date()) if not s.isna().all() else None,
-                    }
-                elif data_type == "boolean":
-                    vc = df[col_name].astype(str).value_counts().to_dict()
-                    out_stat["filter_columns"][col_name] = {
-                        "type": "boolean",
-                        "values": [str(k) for k in vc.keys()]
-                    }
-
-        # Add by_source if 'source' column exists
-        if 'source' in df.columns:
-            out_stat["by_source"] = {str(k): int(v) for k, v in df["source"].value_counts().to_dict().items()}
-        pre_computed_output_stats[output_name.upper()] = out_stat
-
     # Build summary_stats with V1-compatible format
+    # NOTE: output_stats (filter_columns, by_ badges) are NOT stored in DB
+    #       They are computed on-demand by the stats endpoint from CSV files
+    #       This keeps summary_stats small and avoids bloating the DB column
     # Collect data source row counts from executor.datasets
     datasets = executor.datasets if executor else {}
 
@@ -277,9 +206,6 @@ def _export_outputs_and_build_stats(
                 "status_counts": {str(k): int(v) for k, v in status_counts.items()}
             }
     
-    # Include pre-computed output_stats (used by stats endpoint, avoids CSV re-read)
-    summary_stats["output_stats"] = pre_computed_output_stats
-
     return {
         "file_result_a1": file_result_a1,
         "file_result_a2": file_result_a2,
@@ -643,12 +569,19 @@ def _run_workflow_in_background(batch_id: str, config_id: int, file_paths: dict,
         # on_step_log callback writes to FILE, not DB
         on_step_log = make_on_step_log_callback(batch_id, run_number)
         
+        # Build cycle_params with date_from/date_to from period
+        effective_cycle_params = dict(cycle_params or {})
+        if 'date_from' not in effective_cycle_params:
+            effective_cycle_params['date_from'] = str(period_from) if period_from else ''
+        if 'date_to' not in effective_cycle_params:
+            effective_cycle_params['date_to'] = str(period_to) if period_to else ''
+
         # Create workflow executor
         executor = WorkflowExecutor(
             config=config,
             batch_id=batch_id,
             file_paths=file_paths,
-            cycle_params=cycle_params,
+            cycle_params=effective_cycle_params,
             on_step_log=on_step_log,
         )
         
@@ -1338,7 +1271,8 @@ async def rerun_batch(
     # Launch workflow execution in a background thread
     thread = threading.Thread(
         target=_run_workflow_in_background,
-        args=(batch.batch_id, batch.config_id, file_paths, {}, None, None, None,
+        args=(batch.batch_id, batch.config_id, file_paths, {},
+              batch.period_from, batch.period_to, None,
               next_run, 'rerun'),
         daemon=True,
         name=f"rerun-{batch.batch_id}"

@@ -251,13 +251,21 @@ class FileDataLoader(BaseDataLoader):
                 try:
                     chunk_df = self._read_single_file(file_path, header_row, data_start_row, sheet_name, has_column_mapping)
                     if not chunk_df.empty:
+                        # Filter invalid rows (footer/summary) per file BEFORE merge
+                        rows_before = len(chunk_df)
+                        chunk_df = self._filter_required_columns(chunk_df)
+                        rows_filtered = rows_before - len(chunk_df)
+
                         # Add file source tracking
                         chunk_df['_file_source'] = file_path.name
                         file_stats.append({
                             'file': file_path.name,
                             'rows': len(chunk_df)
                         })
-                        self.log('info', f"  - {file_path.name}: {len(chunk_df)} rows")
+                        if rows_filtered > 0:
+                            self.log('info', f"  - {file_path.name}: {len(chunk_df)} rows (filtered {rows_filtered} invalid rows)")
+                        else:
+                            self.log('info', f"  - {file_path.name}: {len(chunk_df)} rows")
                         
                         # Incremental concat to avoid holding all dfs in memory
                         if merged_df is None:
@@ -288,9 +296,14 @@ class FileDataLoader(BaseDataLoader):
             gc.collect()
             self.log('info', f"Total rows after merge: {len(df)} | Memory: {mem_before:.1f}MB -> {mem_after:.1f}MB")
             
-            # Apply column mapping
-            df = self.apply_column_mapping(df, columns_config)
-            
+            # Note: _filter_required_columns already applied per-file before merge
+
+            # Apply column mapping, or auto-normalize if no mapping configured
+            if columns_config:
+                df = self.apply_column_mapping(df, columns_config)
+            else:
+                df = self.auto_normalize_columns(df)
+
             # Apply transforms
             df = self.apply_transforms(df, transforms)
             
@@ -327,6 +340,57 @@ class FileDataLoader(BaseDataLoader):
             # Always cleanup temp directories
             self._cleanup_temp_dirs()
     
+    def _filter_required_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter out rows where required columns are empty/null.
+
+        Config field ``required_columns`` accepts Excel column letters (e.g. "A", "B, I").
+        Rows where ANY required column is NaN or empty string are dropped.
+        This runs BEFORE column mapping, so it uses raw column positions.
+        """
+        req = self.config.get('required_columns')
+        if not req:
+            return df
+
+        # Parse: can be string "A, C" or list ["A", "C"]
+        if isinstance(req, str):
+            req = [r.strip() for r in req.split(',') if r.strip()]
+        elif isinstance(req, list):
+            req = [str(r).strip() for r in req if str(r).strip()]
+
+        if not req:
+            return df
+
+        # Resolve column letters to actual DataFrame column names (by position)
+        target_cols = []
+        for col_ref in req:
+            try:
+                col_idx = self._excel_col_to_index(col_ref)
+                if col_idx < len(df.columns):
+                    target_cols.append(df.columns[col_idx])
+            except Exception:
+                # Fallback: try as column name directly
+                if col_ref in df.columns:
+                    target_cols.append(col_ref)
+
+        if not target_cols:
+            self.log('warning', f"required_columns {req} could not be resolved to any DataFrame columns")
+            return df
+
+        before = len(df)
+        # Drop rows where any required column is NaN
+        df = df.dropna(subset=target_cols)
+        # Also drop rows where required column is empty string
+        for col in target_cols:
+            mask = df[col].astype(str).str.strip().isin(['', 'nan', 'None', 'NaN'])
+            df = df[~mask]
+        df = df.reset_index(drop=True)
+
+        after = len(df)
+        if before != after:
+            self.log('info', f"Filtered {before - after} rows where required columns {req} were empty ({before} → {after})")
+
+        return df
+
     def _read_single_file(self, file_path: Path, header_row,
                           data_start_row: int, sheet_name,
                           has_column_mapping: bool = False) -> pd.DataFrame:

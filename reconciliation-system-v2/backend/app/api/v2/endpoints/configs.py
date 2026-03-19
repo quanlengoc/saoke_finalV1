@@ -265,3 +265,117 @@ async def delete_config(
     db.commit()
     
     return {"message": "Config deleted successfully"}
+
+
+@router.post("/{config_id}/clone", response_model=PartnerServiceConfigResponse)
+async def clone_config(
+    config_id: int,
+    data: PartnerServiceConfigCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Clone a config with all related data (data sources, workflow steps, output configs).
+
+    The new config uses the provided basic info (partner_code, service_code, etc.)
+    but copies all data_sources, workflow_steps, and output_configs from the source.
+    """
+    # Load source config with all relationships
+    source = db.query(PartnerServiceConfig).options(
+        joinedload(PartnerServiceConfig.data_sources),
+        joinedload(PartnerServiceConfig.workflow_steps),
+        joinedload(PartnerServiceConfig.output_configs),
+    ).filter(PartnerServiceConfig.id == config_id).first()
+
+    if not source:
+        raise HTTPException(status_code=404, detail="Source config not found")
+
+    # Validate date overlap (same logic as create)
+    existing_configs = db.query(PartnerServiceConfig).filter(
+        PartnerServiceConfig.partner_code == data.partner_code.upper(),
+        PartnerServiceConfig.service_code == data.service_code.upper(),
+        PartnerServiceConfig.is_active == True,
+    ).all()
+
+    new_start = data.valid_from
+    new_end = data.valid_to or date(9999, 12, 31)
+    for existing in existing_configs:
+        existing_start = existing.valid_from
+        existing_end = existing.valid_to or date(9999, 12, 31)
+        if new_start <= existing_end and existing_start <= new_end:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Khoảng thời gian áp dụng ({data.valid_from} - {data.valid_to or 'vô hạn'}) "
+                       f"giao nhau với cấu hình ID {existing.id} "
+                       f"({existing.valid_from} - {existing.valid_to or 'vô hạn'})."
+            )
+
+    # Create new config with provided basic info
+    report_cell_mapping_str = None
+    if data.report_cell_mapping:
+        report_cell_mapping_str = json.dumps(data.report_cell_mapping) if isinstance(data.report_cell_mapping, dict) else data.report_cell_mapping
+
+    new_config = PartnerServiceConfig(
+        partner_code=data.partner_code.upper(),
+        partner_name=data.partner_name,
+        service_code=data.service_code.upper(),
+        service_name=data.service_name,
+        is_active=data.is_active,
+        valid_from=data.valid_from,
+        valid_to=data.valid_to,
+        report_template_path=source.report_template_path,
+        report_cell_mapping=source.report_cell_mapping,
+    )
+    db.add(new_config)
+    db.flush()  # get new_config.id
+
+    # Clone data sources
+    for ds in source.data_sources:
+        new_ds = DataSourceConfig(
+            config_id=new_config.id,
+            source_name=ds.source_name,
+            source_type=ds.source_type,
+            display_name=ds.display_name,
+            is_required=ds.is_required,
+            display_order=ds.display_order,
+            file_config=ds.file_config,
+            db_config=ds.db_config,
+            sftp_config=ds.sftp_config,
+            api_config=ds.api_config,
+        )
+        db.add(new_ds)
+
+    # Clone workflow steps
+    for ws in source.workflow_steps:
+        new_ws = WorkflowStep(
+            config_id=new_config.id,
+            step_order=ws.step_order,
+            step_name=ws.step_name,
+            left_source=ws.left_source,
+            right_source=ws.right_source,
+            join_type=ws.join_type,
+            matching_rules=ws.matching_rules,
+            output_name=ws.output_name,
+            output_type=ws.output_type,
+            output_columns=ws.output_columns,
+            is_final_output=ws.is_final_output,
+            status_combine_rules=ws.status_combine_rules,
+        )
+        db.add(new_ws)
+
+    # Clone output configs
+    for oc in source.output_configs:
+        new_oc = OutputConfig(
+            config_id=new_config.id,
+            output_name=oc.output_name,
+            display_name=oc.display_name,
+            columns_config=oc.columns_config,
+            filter_status=oc.filter_status,
+            use_for_report=oc.use_for_report,
+            display_order=oc.display_order,
+        )
+        db.add(new_oc)
+
+    db.commit()
+    db.refresh(new_config)
+
+    return _build_config_response(new_config)

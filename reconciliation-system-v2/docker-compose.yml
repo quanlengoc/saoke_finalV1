@@ -7,32 +7,27 @@ services:
       context: .
       dockerfile: docker/Dockerfile.backend
     container_name: reconciliation-backend
-    ports:
-      - "8001:8001"
+    expose:
+      - "8001"
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - DB_TYPE=${DB_TYPE:-sqlite}
-      - ORACLE_HOST=${ORACLE_HOST:-}
-      - ORACLE_PORT=${ORACLE_PORT:-1521}
-      - ORACLE_USER=${ORACLE_USER:-}
-      - ORACLE_PASSWORD=${ORACLE_PASSWORD:-}
-      - ORACLE_SID=${ORACLE_SID:-ORCL}
-      - MOCK_MODE=${MOCK_MODE:-true}
     volumes:
-      # Database volume - data không bị mất
-      - backend-data:/app/data
-      
+      # Database volume - data persists
+      - ./backend/data:/app/data
+
       # Storage volumes
-      - backend-uploads:/app/storage/uploads
-      - backend-exports:/app/storage/exports
-      - backend-processed:/app/storage/processed
-      - backend-mock-data:/app/storage/mock_data
-      
+      - ./backend/storage/uploads:/app/storage/uploads
+      - ./backend/storage/exports:/app/storage/exports
+      - ./backend/storage/processed:/app/storage/processed
+      - ./backend/storage/templates:/app/storage/templates
+      - ./backend/storage/sql_templates:/app/storage/sql_templates
+      - ./backend/storage/custom_matching:/app/storage/custom_matching
+
       # Logs volume
-      - backend-logs:/app/logs
-      
-      # Config file (optionally mount from host)
+      - ./backend/logs:/app/logs
+
+      # Config file (mount from host)
       - ./backend/config.ini:/app/config.ini:ro
     restart: unless-stopped
     networks:
@@ -43,8 +38,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    depends_on:
-      - redis
 
   # Frontend Service
   frontend:
@@ -52,10 +45,9 @@ services:
       context: .
       dockerfile: docker/Dockerfile.frontend
     container_name: reconciliation-frontend
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:8001/api}
       - NODE_ENV=production
     restart: unless-stopped
     networks:
@@ -69,90 +61,20 @@ services:
     depends_on:
       - backend
 
-  # Redis Cache (Optional - untuk session/caching)
-  redis:
-    image: redis:7-alpine
-    container_name: reconciliation-redis
+  # Nginx Reverse Proxy — single entry point on port 3000
+  nginx:
+    image: nginx:alpine
+    container_name: reconciliation-nginx
     ports:
-      - "6379:6379"
+      - "3000:3000"
     volumes:
-      - redis-data:/data
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
     restart: unless-stopped
     networks:
       - reconciliation-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Nginx Reverse Proxy (Optional - Production)
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: reconciliation-nginx
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./ssl:/etc/nginx/ssl:ro
-  #   depends_on:
-  #     - backend
-  #     - frontend
-  #   restart: unless-stopped
-  #   networks:
-  #     - reconciliation-network
-
-# Named Volumes (data persists on host machine)
-volumes:
-  backend-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/data
-  
-  backend-uploads:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/storage/uploads
-  
-  backend-exports:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/storage/exports
-  
-  backend-processed:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/storage/processed
-  
-  backend-mock-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/storage/mock_data
-  
-  backend-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/logs
-  
-  redis-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./redis/data
 
 # Networks
 networks:

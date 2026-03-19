@@ -43,12 +43,54 @@ export default function ConfigsV2Page() {
 
   const handleDelete = async (configId) => {
     if (!confirm('Bạn có chắc muốn xóa cấu hình này?')) return
-    
+
     try {
       await configsApiV2.delete(configId)
       loadConfigs()
     } catch (err) {
       setError(err.response?.data?.detail || 'Không thể xóa cấu hình')
+    }
+  }
+
+  // Clone state
+  const [cloneSource, setCloneSource] = useState(null)
+  const [cloneForm, setCloneForm] = useState({
+    partner_code: '', partner_name: '', service_code: '', service_name: '',
+    valid_from: '', valid_to: '', is_active: true
+  })
+  const [cloneLoading, setCloneLoading] = useState(false)
+
+  const openCloneModal = (config) => {
+    setCloneSource(config)
+    setCloneForm({
+      partner_code: config.partner_code,
+      partner_name: config.partner_name,
+      service_code: config.service_code + '_COPY',
+      service_name: config.service_name + ' (bản sao)',
+      valid_from: config.valid_from || '',
+      valid_to: config.valid_to || '',
+      is_active: true,
+    })
+  }
+
+  const handleClone = async () => {
+    if (!cloneForm.partner_code || !cloneForm.service_code || !cloneForm.valid_from) {
+      alert('Vui lòng điền đầy đủ thông tin bắt buộc')
+      return
+    }
+    setCloneLoading(true)
+    try {
+      const payload = {
+        ...cloneForm,
+        valid_to: cloneForm.valid_to || null,
+      }
+      await configsApiV2.clone(cloneSource.id, payload)
+      setCloneSource(null)
+      loadConfigs()
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Không thể clone cấu hình')
+    } finally {
+      setCloneLoading(false)
     }
   }
 
@@ -191,6 +233,13 @@ export default function ConfigsV2Page() {
                       <PencilIcon className="h-5 w-5" />
                     </Link>
                     <button
+                      onClick={() => openCloneModal(config)}
+                      className="text-green-600 hover:text-green-900"
+                      title="Clone cấu hình"
+                    >
+                      <DocumentDuplicateIcon className="h-5 w-5" />
+                    </button>
+                    <button
                       onClick={() => handleDelete(config.id)}
                       className="text-red-600 hover:text-red-900"
                       title="Xóa"
@@ -226,6 +275,71 @@ export default function ConfigsV2Page() {
             >
               Sau
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Clone Modal */}
+      {cloneSource && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+            <h3 className="text-lg font-bold mb-1">Clone cấu hình</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Sao chép từ: <strong>{cloneSource.partner_code} / {cloneSource.service_code}</strong> (ID: {cloneSource.id})
+              <br />Toàn bộ nguồn dữ liệu, workflow, report template sẽ được clone.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Mã đối tác *</label>
+                <input type="text" value={cloneForm.partner_code}
+                  onChange={e => setCloneForm(f => ({ ...f, partner_code: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Tên đối tác *</label>
+                <input type="text" value={cloneForm.partner_name}
+                  onChange={e => setCloneForm(f => ({ ...f, partner_name: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Mã dịch vụ *</label>
+                <input type="text" value={cloneForm.service_code}
+                  onChange={e => setCloneForm(f => ({ ...f, service_code: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Tên dịch vụ *</label>
+                <input type="text" value={cloneForm.service_name}
+                  onChange={e => setCloneForm(f => ({ ...f, service_name: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Hiệu lực từ *</label>
+                <input type="date" value={cloneForm.valid_from}
+                  onChange={e => setCloneForm(f => ({ ...f, valid_from: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Hiệu lực đến</label>
+                <input type="date" value={cloneForm.valid_to}
+                  onChange={e => setCloneForm(f => ({ ...f, valid_to: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded text-sm" />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setCloneSource(null)}
+                className="px-4 py-2 text-sm text-gray-600 border rounded hover:bg-gray-50">
+                Hủy
+              </button>
+              <button onClick={handleClone} disabled={cloneLoading}
+                className="px-4 py-2 text-sm text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                {cloneLoading && <ArrowPathIcon className="h-4 w-4 animate-spin" />}
+                <DocumentDuplicateIcon className="h-4 w-4" />
+                Clone
+              </button>
+            </div>
           </div>
         </div>
       )}

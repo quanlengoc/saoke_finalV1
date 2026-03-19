@@ -208,14 +208,17 @@ class DatabaseManager:
     def create_temp_table(cls, table_name: str, df, connection_name: str = 'app'):
         """
         Create a temporary table from a pandas DataFrame
-        
+
         Args:
             table_name: Name for the temp table
             df: Pandas DataFrame
             connection_name: Database connection name
         """
+        from app.core.sql_security import SqlGuard
+        SqlGuard.validate_table_name(table_name, context="create_temp_table")
+
         engine = cls.get_app_engine() if connection_name == 'app' else cls.get_external_engine(connection_name)
-        
+
         # Use pandas to_sql for simplicity
         df.to_sql(table_name, engine, if_exists='replace', index=False)
     
@@ -223,13 +226,16 @@ class DatabaseManager:
     def drop_temp_table(cls, table_name: str, connection_name: str = 'app'):
         """
         Drop a temporary table
-        
+
         Args:
             table_name: Name of the table to drop
             connection_name: Database connection name
         """
+        from app.core.sql_security import SqlGuard
+        SqlGuard.validate_table_name(table_name, context="drop_temp_table")
+
         engine = cls.get_app_engine() if connection_name == 'app' else cls.get_external_engine(connection_name)
-        
+
         with engine.connect() as conn:
             conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
             conn.commit()
@@ -238,16 +244,19 @@ class DatabaseManager:
     def execute_sql_on_temp(cls, sql: str, params: Dict = None) -> list:
         """
         Execute SQL on app database (for temp table queries)
-        
+
         Args:
-            sql: SQL query
+            sql: SQL query (must be SELECT — validated by SqlGuard)
             params: Query parameters
-        
+
         Returns:
             List of result dictionaries
         """
+        from app.core.sql_security import SqlGuard
+        SqlGuard.validate_query(sql, context="execute_sql_on_temp")
+
         engine = cls.get_app_engine()
-        
+
         with engine.connect() as conn:
             result = conn.execute(text(sql), params or {})
             columns = result.keys()

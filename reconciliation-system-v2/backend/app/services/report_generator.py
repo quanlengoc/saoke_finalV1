@@ -15,6 +15,7 @@ from openpyxl import load_workbook
 from app.core.config import get_storage_path
 from app.core.database import DatabaseManager
 from app.core.exceptions import ConfigurationError
+from app.core.sql_security import SqlGuard, SqlSecurityError
 from app.utils.file_utils import get_export_path
 from app.utils.excel_utils import dataframe_to_csv
 
@@ -267,11 +268,15 @@ class ReportGenerator:
         for sql_cell in sql_cells:
             cell_ref = sql_cell.get('cell')
             sql = sql_cell.get('sql', '')
-            
+
             # Replace table name references with actual temp table names
             sql_executed = self._replace_table_names(sql)
-            
+
             try:
+                # Security: validate SQL before execution
+                sql_executed = SqlGuard.sanitize_and_log(
+                    sql_executed, context=f"report/sql_cell/{cell_ref}"
+                )
                 results = DatabaseManager.execute_sql_on_temp(sql_executed)
                 if results:
                     # Get first column of first row
@@ -295,8 +300,12 @@ class ReportGenerator:
         if data_start_cell and data_sql:
             # Replace table name references
             data_sql_executed = self._replace_table_names(data_sql)
-            
+
             try:
+                # Security: validate SQL before execution
+                data_sql_executed = SqlGuard.sanitize_and_log(
+                    data_sql_executed, context="report/data_table"
+                )
                 self.log_step("data_table", "start", f"Executing data query", sql=data_sql_executed)
                 results = DatabaseManager.execute_sql_on_temp(data_sql_executed)
                 

@@ -56,10 +56,6 @@ class Settings(BaseSettings):
     def TEMPLATE_PATH(self) -> str:
         return str(self.BASE_DIR / "storage" / "templates")
     
-    @property
-    def MOCK_DATA_PATH(self) -> str:
-        return str(self.BASE_DIR / "storage" / "mock_data")
-    
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -112,12 +108,6 @@ class ConfigIniReader:
             return dict(self.config.items('app'))
         return {}
     
-    def is_mock_mode(self) -> bool:
-        """Check if mock mode is enabled"""
-        if self.config.has_section('mock'):
-            return self.config.getboolean('mock', 'enabled', fallback=False)
-        return False
-    
     def list_database_connections(self) -> list:
         """List all available database connection names"""
         connections = []
@@ -163,7 +153,6 @@ def get_storage_path(name: str) -> Path:
             'exports': base_dir / 'storage' / 'exports',
             'templates': base_dir / 'storage' / 'templates',
             'sql_templates': base_dir / 'storage' / 'sql_templates',
-            'mock_data': base_dir / 'storage' / 'mock_data',
             'custom_matching': base_dir / 'storage' / 'custom_matching',
         }
         return defaults.get(name, base_dir / 'storage' / name)

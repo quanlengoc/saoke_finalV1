@@ -39,6 +39,8 @@ class DataSourceConfigCreate(DataSourceConfigBase):
 
 class DataSourceConfigUpdate(BaseModel):
     """Schema for updating data source - all fields optional"""
+    source_name: Optional[str] = None
+    source_type: Optional[str] = None
     display_name: Optional[str] = None
     is_required: Optional[bool] = None
     display_order: Optional[int] = None

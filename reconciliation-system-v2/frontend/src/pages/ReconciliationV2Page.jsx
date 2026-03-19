@@ -639,6 +639,41 @@ export default function ReconciliationV2Page() {
               </div>
               )
             })}
+
+            {/* Non-file sources (DATABASE, SFTP, API) — display as info only */}
+            {dataSources.filter(ds => ds.source_type !== 'FILE_UPLOAD').map(ds => (
+              <div key={ds.source_name} className="p-4 border-2 border-dashed border-green-300 bg-green-50 rounded-xl">
+                <div className="flex items-center">
+                  <svg className="h-8 w-8 mr-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                  </svg>
+                  <div>
+                    <div className="font-medium">
+                      {ds.source_name}: {ds.display_name || ds.source_name}
+                      <span className="ml-2 text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">
+                        {ds.source_type}
+                      </span>
+                    </div>
+                    <div className="text-xs text-green-600 mt-1 space-y-0.5">
+                      <div>
+                        Dữ liệu sẽ được tự động truy vấn từ {ds.source_type === 'DATABASE' ? 'database' : ds.source_type.toLowerCase()} khi chạy đối soát
+                        {ds.db_config?.db_connection && <span> · Kết nối: <b>{ds.db_config.db_connection}</b></span>}
+                      </div>
+                      {ds.db_config?.sql_file && (
+                        <div className="text-green-500">
+                          SQL: <code className="bg-green-100 px-1 rounded">{ds.db_config.sql_file}</code>
+                          {ds.db_config?.sql_params && Object.keys(ds.db_config.sql_params).length > 0 && (
+                            <span className="ml-2">
+                              Tham số: {Object.entries(ds.db_config.sql_params).map(([k, v]) => `${k}=${v}`).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Upload summary & info */}

@@ -3,7 +3,7 @@ FROM python:3.9-slim as builder
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for building
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -26,8 +26,13 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Install runtime dependencies
+# libmagic1: file type detection
+# libaio1: Oracle Instant Client
+# curl: health check
 RUN apt-get update && apt-get install -y \
     libmagic1 \
+    libaio1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
@@ -44,7 +49,9 @@ RUN mkdir -p \
     storage/uploads \
     storage/exports \
     storage/processed \
-    storage/mock_data
+    storage/templates \
+    storage/sql_templates/shared \
+    storage/custom_matching
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -52,7 +59,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8001/health')" || exit 1
+    CMD curl -f http://localhost:8001/health || exit 1
 
 # Expose port
 EXPOSE 8001

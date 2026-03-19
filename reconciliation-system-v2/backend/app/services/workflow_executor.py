@@ -140,7 +140,8 @@ class WorkflowExecutor:
         """Get default storage base path"""
         return str(Path(__file__).parent.parent.parent.parent / "storage")
     
-    def _log_step(self, step: str, status: str, message: str, data_preview: dict = None):
+    def _log_step(self, step: str, status: str, message: str,
+                  data_preview: dict = None, file_details: dict = None):
         """Add a step log entry"""
         log_entry = {
             "step": step,
@@ -150,6 +151,8 @@ class WorkflowExecutor:
         }
         if data_preview:
             log_entry["data_preview"] = data_preview
+        if file_details:
+            log_entry["file_details"] = file_details
         self.step_logs.append(log_entry)
         
         if status == "error":
@@ -284,9 +287,26 @@ class WorkflowExecutor:
                         result.data, ds.source_name, ds.display_name,
                         data_source_config=ds
                     )
-                    self._log_step(f"load_{ds.source_name}", "ok", 
-                                   f"Loaded {ds.source_name}: {result.row_count} rows in {result.load_time_seconds:.2f}s",
-                                   data_preview=preview)
+                    # Build message with per-file details
+                    metadata = result.metadata or {}
+                    file_stats = metadata.get('file_stats', [])
+                    files_count = metadata.get('files_processed', 1)
+
+                    if files_count > 1:
+                        msg = f"Loaded {ds.source_name}: {result.row_count} rows from {files_count} files in {result.load_time_seconds:.2f}s"
+                    else:
+                        msg = f"Loaded {ds.source_name}: {result.row_count} rows in {result.load_time_seconds:.2f}s"
+
+                    # Attach file_details for UI display
+                    file_details = None
+                    if file_stats:
+                        file_details = {
+                            "files_count": files_count,
+                            "files": file_stats  # [{file: "name.xlsx", rows: 1234}, ...]
+                        }
+
+                    self._log_step(f"load_{ds.source_name}", "ok", msg,
+                                   data_preview=preview, file_details=file_details)
                 else:
                     # Optional source skipped (no file provided)
                     self._log_step(f"load_{ds.source_name}", "ok",
@@ -510,6 +530,8 @@ class WorkflowExecutor:
         'right_key': '_debug_right_key',
         'left_amount': '_debug_left_amount',
         'right_amount': '_debug_right_amount',
+        'left_match_count': '_debug_left_match_count',
+        'right_match_count': '_debug_right_match_count',
     }
 
     def _apply_step_output_columns(self, df: pd.DataFrame, columns_list: list) -> pd.DataFrame:

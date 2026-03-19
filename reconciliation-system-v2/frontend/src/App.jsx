@@ -16,7 +16,6 @@ import BatchDetailPage from './pages/BatchDetailPage'
 import ApprovalsPage from './pages/ApprovalsPage'
 import UsersPage from './pages/admin/UsersPage'
 import ConfigsPage from './pages/admin/ConfigsPage'
-import MockDataPage from './pages/admin/MockDataPage'
 import ConfigsV2Page from './pages/admin/ConfigsV2Page'
 import ConfigDetailV2Page from './pages/admin/ConfigDetailV2Page'
 import ConfigEditV2Page from './pages/admin/ConfigEditV2Page'
@@ -84,12 +83,6 @@ function App() {
             <ConfigsPage />
           </ProtectedRoute>
         } />
-        <Route path="/admin/mock-data" element={
-          <ProtectedRoute adminOnly>
-            <MockDataPage />
-          </ProtectedRoute>
-        } />
-        
         {/* V2 Admin Routes */}
         <Route path="/admin/configs-v2" element={
           <ProtectedRoute adminOnly>

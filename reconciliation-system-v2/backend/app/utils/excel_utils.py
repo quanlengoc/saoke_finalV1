@@ -14,6 +14,66 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from app.core.config import get_storage_path
 
 
+def _filter_required_columns(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Filter out rows where required columns are empty/null.
+
+    Config field ``required_columns`` accepts Excel column letters:
+      - a single letter (str): ``"A"``
+      - a list of letters: ``["A", "C"]``
+
+    Uses column position (letter → 0-based index) to identify the column
+    in the raw DataFrame — works BEFORE or AFTER column renaming.
+    Rows where **any** required column is NaN / empty-string are dropped.
+    """
+    req = config.get('required_columns')
+    if not req:
+        return df
+
+    if isinstance(req, str):
+        req = [r.strip() for r in req.split(',') if r.strip()]
+
+    if not req:
+        return df
+
+    # Resolve column letters to actual DataFrame column names
+    target_cols = []
+    for col_ref in req:
+        col_ref = col_ref.strip()
+        try:
+            # Try as Excel column letter (A, B, C, AA, ...)
+            col_idx = column_letter_to_index(col_ref)
+            if col_idx < len(df.columns):
+                target_cols.append(df.columns[col_idx])
+            continue
+        except Exception:
+            pass
+        # Fallback: treat as column name / alias directly
+        if col_ref in df.columns:
+            target_cols.append(col_ref)
+
+    if not target_cols:
+        return df
+
+    before = len(df)
+    # Drop rows where any required column is NaN
+    df = df.dropna(subset=target_cols)
+    # Also drop rows where required column is empty string (after strip)
+    for col in target_cols:
+        mask = df[col].astype(str).str.strip().isin(['', 'nan', 'None'])
+        df = df[~mask]
+    df = df.reset_index(drop=True)
+
+    after = len(df)
+    if before != after:
+        import logging
+        logging.getLogger(__name__).info(
+            f"Filtered {before - after} rows where required columns {req} were empty "
+            f"({before} → {after} rows)"
+        )
+
+    return df
+
+
 def column_letter_to_index(letter: str) -> int:
     """
     Convert Excel column letter to 0-based index
@@ -79,7 +139,11 @@ def read_excel_with_config(
         skiprows=range(header_row, data_start_row - 1) if data_start_row > header_row + 1 else None,
         engine=engine
     )
-    
+
+    # Filter rows BEFORE column selection — required_columns uses Excel letter (A, B, C...)
+    # so it can reference columns not in the mapping
+    df = _filter_required_columns(df, config)
+
     # If columns_map is provided, select and rename columns
     if columns_map:
         # Convert column letters to indices and select
@@ -89,14 +153,14 @@ def read_excel_with_config(
             if col_idx < len(df.columns):
                 original_col = df.columns[col_idx]
                 selected_cols[original_col] = internal_name
-        
+
         # Select only mapped columns
         cols_to_select = list(selected_cols.keys())
         df = df[cols_to_select]
-        
+
         # Rename columns
         df = df.rename(columns=selected_cols)
-    
+
     return df
 
 
@@ -124,7 +188,10 @@ def read_csv_with_config(
         header=header_row - 1,
         skiprows=range(header_row, data_start_row - 1) if data_start_row > header_row + 1 else None
     )
-    
+
+    # Filter rows BEFORE column selection
+    df = _filter_required_columns(df, config)
+
     # If columns_map is provided, select and rename columns
     if columns_map:
         selected_cols = {}
@@ -133,11 +200,11 @@ def read_csv_with_config(
             if col_idx < len(df.columns):
                 original_col = df.columns[col_idx]
                 selected_cols[original_col] = internal_name
-        
+
         cols_to_select = list(selected_cols.keys())
         df = df[cols_to_select]
         df = df.rename(columns=selected_cols)
-    
+
     return df
 
 

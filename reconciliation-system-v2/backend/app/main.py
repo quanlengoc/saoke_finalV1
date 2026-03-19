@@ -39,7 +39,6 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.UPLOAD_PATH, exist_ok=True)
     os.makedirs(settings.OUTPUT_PATH, exist_ok=True)
     os.makedirs(settings.TEMPLATE_PATH, exist_ok=True)
-    os.makedirs(settings.MOCK_DATA_PATH, exist_ok=True)
     
     # Run initial data setup if needed (only for first-time setup)
     # Already initialized - skip to speed up startup
